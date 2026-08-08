@@ -1,0 +1,141 @@
+# =============================================================================
+# ghl-leadflow-demo — .gitignore
+#
+# This repository is PUBLIC. Everything committed is immediately visible to
+# anyone. Treat sanitization as mandatory, not optional.
+#
+# NOTE: *.json is deliberately NOT ignored. n8n workflow exports and example
+# payloads are versioned JSON artifacts of this project. Credential-shaped
+# JSON is denied by specific patterns below instead of by a blanket rule.
+# =============================================================================
+
+# --- Secrets and environment ------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# --- Credentials, keys, service accounts ------------------------------------
+# Specific patterns only, so legitimate project JSON is never swallowed.
+service-account*.json
+*service-account*.json
+*-credentials.json
+credentials.json
+client_secret*.json
+gcp-*.json
+gha-creds-*.json
+token.json
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+id_ecdsa*
+*.ppk
+.netrc
+.git-credentials
+
+# --- Local-only documentation -----------------------------------------------
+# Full, unsanitized environment inventory. Never publish.
+docs/environment.local.md
+*.local.md
+
+# --- Dependencies -----------------------------------------------------------
+node_modules/
+.pnpm-store/
+.yarn/
+jspm_packages/
+
+# --- Logs -------------------------------------------------------------------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# --- Test output, coverage, artifacts ---------------------------------------
+coverage/
+.nyc_output/
+*.lcov
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+playwright/.auth/
+.last-run.json
+
+# --- Tunnel config ----------------------------------------------------------
+# ngrok config files hold the authtoken.
+ngrok.yml
+ngrok.yaml
+.ngrok2/
+
+# --- n8n local state --------------------------------------------------------
+# Local runtime data, database, and encryption key. Workflow EXPORTS under
+# workflows/ are intentionally versioned and are not matched here.
+#
+# WARNING: `n8n export:workflow --decrypted` writes credential values in
+# cleartext. Never use it for anything destined for this repository. A secret
+# typed directly into a node parameter — rather than bound to an n8n
+# credential — is included in EVERY export form. Bind secrets to credentials.
+.n8n/
+n8n-data/
+n8n_data/
+.n8n-local/
+database.sqlite
+database.sqlite-*
+*.n8n.encryptionkey
+
+# --- Local agent/tool config ------------------------------------------------
+# These can carry env blocks with tokens. .claude/settings.json (project
+# permissions, no secrets) is intentionally NOT ignored.
+.claude/settings.local.json
+.claude/local/
+.mcp.json
+.cursor/mcp.json
+
+# --- Build output -----------------------------------------------------------
+dist/
+build/
+out/
+.cache/
+.tmp/
+tmp/
+
+# --- OS and editor ----------------------------------------------------------
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+*.swp
+*.swo
+*~
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.code-workspace
+
+# --- Cloud-sync conflict artifacts ------------------------------------------
+# Sync conflicts produce duplicate files whose names would otherwise be
+# committed by accident. Note the gap: a hostname-suffixed conflict copy
+# cannot be matched generically without also swallowing legitimate hyphenated
+# filenames. Stage explicit paths and read `git status --short`; never
+# `git add .` in this repository.
+*conflicted copy*
+* - Copy.*
+* (1).*
+* (2).*
+*.tmp
+~$*
+.tmp.drivedownload/
+.tmp.driveupload/
