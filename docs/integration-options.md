@@ -145,7 +145,11 @@ Marketplace app — real work, out of scope for a two-day demo.
 | Sandbox | **25 requests / 10 seconds**, and **10,000 / day**, applied at location level and not multiplying across tokens | [Sandbox PIT](https://marketplace.gohighlevel.com/docs/oauth/SandboxPIT) |
 
 Responses carry `X-RateLimit-*` headers, which is what makes the backoff policy
-in [`architecture.md`](architecture.md) implementable rather than guessed.
+in [`architecture.md`](architecture.md) implementable rather than guessed —
+**for the REST layer**. MCP rate limits are unpublished (§5.6), and ADR-001
+assigns most data operations to the MCP, so the backoff policy is
+evidence-backed only where operations fall through to layer 2. Treat MCP
+throttling behaviour as unknown until observed.
 
 ### Sandbox
 
@@ -236,8 +240,9 @@ The local machine runs Node 22.19, which satisfies this — see
 
 **The `n8n start --tunnel` flag no longer exists.** Verified against the current
 `master` branch of <https://github.com/n8n-io/n8n>
-(`packages/cli/src/commands/start.ts` defines only `open`/`-o`). The old
-documentation URLs now return 404.
+(`packages/cli/src/commands/start.ts` defines only `open`/`-o`). The former
+documentation URLs `https://docs.n8n.io/hosting/installation/npm/` and
+`https://docs.n8n.io/hosting/installation/docker/` returned 404 when consulted.
 
 Current official docs describe the tunnel as **cloudflared-based and
 monorepo-oriented**: "The tunnel uses cloudflared, which runs as a Docker
@@ -260,9 +265,12 @@ with any tunnel or reverse proxy and set the URL explicitly:
   knowledge trap; n8n logs a deprecation warning for the old name.
 - **`N8N_PROXY_HOPS=1`** when behind a reverse proxy.
 
-**ngrok is not named anywhere in official n8n documentation.** Pointing ngrok at
-`:5678` and setting `N8N_WEBHOOK_URL` is a reasonable inference from the
-documented variable, but it is **an inference, not a documented recipe.**
+**ngrok is not named on any official n8n page consulted** — including the
+reverse-proxy configuration page, which names no third-party tunnel service at
+all. Absence from the pages consulted is not proof of absence from the
+documentation as a whole. Pointing ngrok at `:5678` and setting
+`N8N_WEBHOOK_URL` is a reasonable inference from the documented variable, but it
+is **an inference, not a documented recipe.**
 
 ### ⚠️ Test versus Production webhook URLs
 
@@ -312,7 +320,7 @@ Applying [ADR-001](decisions/ADR-001-integration-hierarchy.md) per operation:
 
 **This must not be finalized before asking whether an instance already exists.**
 
-**1. Reuse an existing instance — first choice, if David already runs one.**
+**1. Reuse an existing instance — first choice, if the interviewer's team already runs one.**
 Every documented failure mode below is eliminated by an instance that already
 has a stable HTTPS URL and working Google credentials. It also removes the
 1000-execution cap and the workspace-deletion clause. **Ask before building
@@ -368,6 +376,13 @@ nothing here is mistaken for established fact.
 8. **ngrok plus n8n as an officially supported combination.** n8n names no third-party tunnel service. The pairing is an inference from `N8N_WEBHOOK_URL`.
 9. **Whether older released n8n versions still accept `n8n start --tunnel`.** Verified absent from `master` and current docs; tagged releases were not audited.
 10. **GHL webhook retry and delivery-guarantee policy.** Not documented on any consulted page. The at-least-once assumption in [ADR-002](decisions/ADR-002-idempotency-strategy.md) rests on this and is flagged there as an assumption.
+11. **Contact upsert matching semantics and concurrency behaviour.** The operation is documented as existing; *what field it matches on* — email, phone, or both — and how it behaves under concurrent calls are not. [ADR-002](decisions/ADR-002-idempotency-strategy.md)'s race-window argument depends on this.
+12. **Searching opportunities by a custom-field value.** Nothing in the consulted documentation confirms it, via MCP or REST. The second independent dedup check and the reconciliation sweep both require it.
+
+**Items 11 and 12 are the highest-priority verifications in the sprint.** Each is
+a five-minute check once a token exists, and three documents currently lean on
+them. If either turns out to be unsupported, the idempotency design needs
+reworking — which is much cheaper to discover on day one than on day two.
 
 ### Unverified community claims — not evidence
 

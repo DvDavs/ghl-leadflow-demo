@@ -33,7 +33,7 @@ back-fitted to the implementation.
   three Mermaid diagrams under [`docs/diagrams/`](docs/diagrams/).
 - **Decision records.** Integration hierarchy, idempotency strategy, and AI
   boundaries recorded under [`docs/decisions/`](docs/decisions/).
-- **Test matrix.** [`TEST_CASES.md`](TEST_CASES.md) — 16 scenarios, all
+- **Test matrix.** [`TEST_CASES.md`](TEST_CASES.md) — 19 scenarios, all
   `BLOCKED`, none passing.
 - **Integration research.**
   [`docs/integration-options.md`](docs/integration-options.md), sourced from
@@ -67,8 +67,7 @@ back-fitted to the implementation.
 | Google | No integration configured |
 | Tunnel | ngrok installed, not running, auth state unconfirmed |
 
-Detail in [`docs/environment.md`](docs/environment.md). Local security findings
-are maintained outside version control.
+Detail in [`docs/environment.md`](docs/environment.md).
 
 # Decisions
 

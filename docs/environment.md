@@ -5,29 +5,29 @@ records what capability exists and how it was verified, so that later claims in
 this repository about what the environment can do are checkable rather than
 assumed.
 
-- **Audit date:** 2026-08-08 (America/Mexico_City)
+- **Audit date:** 2026-08-08
 - **Scope:** environment inventory only. No demo feature, payload, test, or
   external resource was created.
 - **Method:** parallel read-only inspection, consolidated, re-verified, and then
-  adversarially reviewed. Version strings come from executing each tool, except
-  where a row states it comes from a package manifest.
+  adversarially reviewed. Version strings come from executing each tool.
 
 > **Sanitization.** No secret value was read, copied, or recorded at any point.
 > No `.env` file, key file, credential file, or cloud configuration file was
-> opened. Tokens, key names, fingerprints, account identifiers, location IDs,
-> webhook URLs, commit identity, and host paths are deliberately excluded.
+> opened. Tokens, key names, account identifiers, location IDs, webhook URLs,
+> commit identity, host paths, and host-level version fingerprints are
+> deliberately excluded. Dependency-relevant tool versions are kept, because
+> they are what makes the rest of this repository reproducible.
 > **Local security findings are maintained outside version control.**
 
 ---
 
 ## System
 
-- **OS:** Windows 11 Home Single Language, 25H2 (build 10.0.26200), x64
-- **Shell:** Windows PowerShell 5.1 (Desktop edition). PowerShell 7 is not
-  installed. Git Bash and Windows Terminal 1.24 are available — the terminal
-  version comes from its package manifest, not from executing it.
-- **Package managers:** winget 1.29.280, Chocolatey 2.4.2, Scoop 0.5.3. Node
-  versions are managed by nvm4w 1.2.2, with 22.19.0 active.
+- **OS:** Windows 11, x64
+- **Shell:** Windows PowerShell 5.1. Git Bash is also available.
+- **Node version management:** a version manager is in use, with **22.19.0**
+  active. This matters because n8n requires Node ≥20.19 and <25 — the active
+  version satisfies it.
 
 ---
 
@@ -41,7 +41,6 @@ assumed.
 | Node.js | yes | 22.19.0 | yes — executed a trivial script | required later |
 | npm | yes | 10.9.3 | yes — `npm ping` round-tripped to the public registry | required later |
 | pnpm | yes | 11.9.0 | yes — resolves its content store | optional |
-| Python | yes | 3.13.2 | yes — executed a trivial script | optional |
 | Docker | yes, engine **stopped** | 28.4.0 | partial — CLI responds, engine not running | required later |
 | Docker Compose | yes | v2.39.2 | partial — plugin responds without the daemon | required later |
 | Playwright | **no** | n/a | n/a — absent from PATH, npm globals, and the project | **required later** |
@@ -52,23 +51,25 @@ no current justification to install.
 
 Notes worth carrying forward:
 
-- **Docker's engine is stopped, not broken.** The service exists and is set to
-  manual start. This matters only if n8n ends up self-hosted.
-- **Playwright is not installed.** It is classified *required later* because the
-  test matrix calls for end-to-end evidence. A browser cache from an unrelated
-  prior install exists on the machine; browser binaries are not a Playwright
-  installation and do not shorten that step.
-- **Bare `python`/`python3` on PATH are Store alias stubs and fail.** Use the
-  `py` launcher.
+- **Docker's engine is stopped, not broken.** It is installed and set to manual
+  start. This matters only if n8n ends up self-hosted.
+- **Playwright is not installed**, and is classified *required later* — meaning
+  expected during the sprint, but not needed to reach the current milestone. It
+  is scheduled by the "Add E2E tests and evidence" work item, which covers
+  automating the lead-capture path and producing repeatable evidence.
+  To be precise about the boundary: [`architecture.md`](architecture.md) rules
+  out automated tests *against live GHL* in this sprint, so Playwright's scope
+  here is the capture path and evidence collection, not CRM assertions. Manual
+  evidence — record identifiers, correlation ids, exports — remains acceptable
+  for scenarios it does not cover.
 
 ---
 
 ## GitHub
 
 - **Authenticated:** yes, to github.com, verified by a live API call.
-- **Credential storage:** the OS keyring.
-- **SSH to GitHub:** verified working non-interactively. No key was generated
-  during the audit and no key material was read.
+- **Git transport:** SSH, verified working. No key was generated during the
+  audit and no key material was read.
 - **Local repository at audit time:** valid work tree, zero commits, zero
   tracked files, no remote configured.
 - **Remote repository at audit time:** already existed, public and empty. It was
@@ -115,8 +116,7 @@ found where we looked", never "does not exist on this machine".
 | GoHighLevel MCP | no | no | no | **not detected** |
 | Excalidraw MCP | no | no | no | **not detected** |
 | Playwright MCP | no | no | no | **not detected** |
-| context7 | yes | yes | **yes** | connected |
-| engram | yes | yes | **yes** | connected |
+| Documentation and memory MCPs | yes | yes | **yes** | connected — not part of the CRM flow |
 
 **Evidence standard.** Only a live health check that reported a successful
 connection was accepted as proof of connection. Appearing in a configuration

@@ -84,9 +84,10 @@ These are the rules the design is held to, and each one is testable:
 6. **The CRM pipeline models the business, not the plumbing.** Retry and error
    handling belong to the integration layer; they never become fake pipeline
    stages a salesperson has to look at.
-7. **Untested is not "working".** Every claim in this repository maps to a row
-   in [`TEST_CASES.md`](TEST_CASES.md), and no row is marked passing without
-   evidence.
+7. **Untested is not "working".** Every reliability claim above is *intended* to
+   map to a row in [`TEST_CASES.md`](TEST_CASES.md), and no row is marked
+   passing without evidence. Coverage is not yet complete — where a claim has no
+   test, that is a gap to close, not a claim to trust.
 
 ## AI boundaries
 
@@ -104,7 +105,7 @@ the test that resolves ambiguous cases are in
 
 **All data in this repository is fictional.** No real customer, contact, phone
 number, email address, or business record appears anywhere, in documentation,
-diagrams, fixtures, or test data. The demo runs against a test location with
+diagrams, fixtures, or test data. The demo will run against a test location with
 invented leads.
 
 No credentials are stored here. [`.env.example`](.env.example) lists variable
@@ -143,8 +144,14 @@ No credentials are stored here. [`.env.example`](.env.example) lists variable
 | [`docs/integration-options.md`](docs/integration-options.md) | What GHL and n8n actually support, with sources |
 | [`docs/environment.md`](docs/environment.md) | What the build machine can do, and how that was verified |
 
-Diagrams are Mermaid and render directly on GitHub. Local security findings are
-maintained outside version control.
+Diagrams are Mermaid and render directly on GitHub.
+
+## Running this
+
+There is nothing to run yet — no code, no deployed workflow, no service. The
+repository is a design and a test contract at this stage. The first executable
+step is the one in [`PROJECT_STATE.md`](PROJECT_STATE.md) under *Next 3
+actions*.
 
 ## Reading the claims in this repository
 

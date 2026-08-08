@@ -5,7 +5,7 @@ function. Subgraphs are ownership boundaries.
 
 ```mermaid
 flowchart TB
-  subgraph S1["Source - owns capture"]
+  subgraph S1["Capture and raw event"]
     A1["Lead submitted"]
     A2{"externalLeadId present"}
     A3["Derive id from email, phone, form and submittedAt"]
@@ -18,7 +18,7 @@ flowchart TB
   end
 
   subgraph S3["n8n - owns integration state"]
-    C1["Webhook received - respond 200 immediately"]
+    C1["Webhook received - verify secret and payload, then ack 200"]
     C2{"Shared secret valid"}
     C3{"Payload contactable"}
     C4{"Ledger says already completed"}
@@ -73,11 +73,16 @@ flowchart TB
 
 ## Ownership
 
+Note on the first subgraph: it is labelled *Capture and raw event*, not
+*Source*, because the id-derivation step (`A2`/`A3`) is **n8n's work** drawn at
+its logical position in the flow rather than inside its owning system. The
+source never owns identity — see the table below.
+
 | Function | Owner | Why not elsewhere |
 |---|---|---|
 | **Capture** | Source | The only system that sees the submission |
-| **Event identity** | Integration layer | Must be decided *before* the CRM is touched, so the CRM cannot own it |
-| **Person identity** | GoHighLevel | Contact upsert deduplicates on email and phone natively |
+| **Event identity** | Integration layer | A fact about our deliveries, not about the business, so the CRM cannot own it |
+| **Person identity** | GoHighLevel | Its contact upsert is what stops one human becoming two contacts **[ASSUMPTION]** — matching semantics unverified |
 | **Business state** | GoHighLevel | It is what the salesperson works |
 | **Validation** | n8n | Rejecting at the boundary keeps malformed data out of the CRM entirely |
 | **Retry and backoff** | n8n | A mechanism, never a CRM-visible fact |

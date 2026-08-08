@@ -83,9 +83,14 @@ flowchart LR
 outbound. That keeps the attack surface to a single path, which is the one
 place authentication effort is worth spending.
 
-**`IDEM` talks to the ledger in both directions** before anything reaches the
-CRM. Deciding *after* a CRM write would defeat the purpose — the duplicate
-would already exist.
+**`IDEM` talks to the ledger in both directions — but note where it sits.** The
+arrows `FB/LP/WF --> CT --> OPP` mean GHL creates the Contact and Opportunity
+*before* `HOOK` ever fires. The ledger is downstream of that write, so it
+prevents duplicate **processing** — a second backup row, a second AI call, a
+second notification — not the CRM record that triggered it. Person-level
+deduplication is GHL's own upsert. See
+[`../architecture.md`](../architecture.md) §6.0, which sets out exactly what
+each layer does and does not prevent.
 
 **AI sits after routing, never before the CRM write.** If enrichment is slow or
 entirely down, the lead is already a contact. Enrichment adds information; it

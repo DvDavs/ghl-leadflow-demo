@@ -139,3 +139,6 @@ $RECYCLE.BIN/
 ~$*
 .tmp.drivedownload/
 .tmp.driveupload/
+
+# Local agent config — never committed
+.claude/

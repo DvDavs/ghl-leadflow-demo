@@ -30,10 +30,16 @@ Every scenario below is blocked on at least one of these:
 
 ## Golden path scope
 
-The first golden path is a **single service type**. Scenarios TC-04 through
-TC-07 (four-service routing) and TC-11 through TC-12 (appointments) are
-deliberately deferred until the single-service path is stable end to end. They
-are written now so the design accounts for them, not because they are next.
+The first golden path is a **single service type**. Deliberately deferred until
+that path is stable end to end:
+
+- **TC-04 through TC-07** — four-service routing
+- **TC-13 and TC-14** — appointments
+- **TC-15 and TC-16** — AI enrichment
+
+They are written now so the design accounts for them, not because they are next.
+The reliability scenarios (**TC-09 through TC-12**, plus **TC-17** and
+**TC-18**) are **not** deferred — they are the point of the demo.
 
 ---
 
@@ -41,8 +47,9 @@ are written now so the design accounts for them, not because they are next.
 
 | ID | Scenario | Input | Expected | Actual | Status |
 |---|---|---|---|---|---|
-| TC-01 | New lead, happy path | Form submission with all required fields, unseen `externalLeadId` | Contact created in GHL; opportunity created in pipeline at `New Lead`; row appended to backup sheet; one structured log line with the correlation id | | BLOCKED (P-GHL, P-N8N, P-SHEET) |
-| TC-02 | Duplicate event, same `externalLeadId` | The exact TC-01 payload delivered a second time | No second contact; no second opportunity; no second sheet row; request acknowledged as already-processed, not as an error | | BLOCKED (P-GHL, P-N8N, P-SHEET) |
+| TC-01 | New lead, happy path | Form submission with all required fields, unseen `externalLeadId` | Contact created in GHL; opportunity created in pipeline at `New Lead`; row appended to backup sheet; a `run_log` row per stage boundary, all sharing one `correlationId`, terminating in `outcome=processed` | | BLOCKED (P-GHL, P-N8N, P-SHEET) |
+| TC-02 | Duplicate **delivery** — webhook redelivered | The exact TC-01 webhook payload delivered a second time, same `externalLeadId` | No second sheet row; no second notification; no second AI call; no further GHL mutation; responds 200 as already-processed, not as an error; one `run_log` row with `outcome=duplicate_event` | | BLOCKED (P-GHL, P-N8N, P-SHEET) |
+| TC-02b | Duplicate **form submission** — same person submits twice | The TC-01 form submitted twice in quick succession | One contact, by GHL's own upsert. Whether a second opportunity is created is determined by the `external_lead_id` pre-create check. **This is the case the ledger cannot prevent** — see `docs/architecture.md` §6.0. Records the honest boundary of the design | | BLOCKED (P-GHL, P-N8N) |
 | TC-03 | Duplicate person, different event | New `externalLeadId`, but email and phone match an existing contact | Contact is reused, not duplicated; a new opportunity is created or the existing one is flagged; the lead is marked as a suspected duplicate for human review rather than silently merged | | BLOCKED (P-GHL, P-N8N) |
 | TC-04 | Service routing — service A | Valid lead, `service = A` | Opportunity lands in the pipeline path designated for A; assignment and notification match A's rule | | BLOCKED (P-GHL, P-N8N) — deferred until TC-01 is stable |
 | TC-05 | Service routing — service B | Valid lead, `service = B` | Opportunity lands in the pipeline path designated for B | | BLOCKED (P-GHL, P-N8N) — deferred until TC-01 is stable |
@@ -56,7 +63,9 @@ are written now so the design accounts for them, not because they are next.
 | TC-13 | Appointment booked | Qualified lead books a slot on the connected calendar | Appointment is created; the opportunity advances to the appointment stage; the backup record reflects the appointment | | BLOCKED (P-GHL, P-CAL) — deferred until TC-01 is stable |
 | TC-14 | Appointment no-show or cancellation | A booked appointment is cancelled | Opportunity does not remain stuck in the appointment stage; it returns to follow-up rather than being marked lost automatically | | BLOCKED (P-GHL, P-CAL) — deferred until TC-01 is stable |
 | TC-15 | Human review — AI declines to classify | Lead whose free-text intent is ambiguous to the classifier | AI output is recorded as a suggestion only; the lead is flagged for human review; no financial approve/reject decision is taken by the AI | | BLOCKED (P-GHL, P-N8N) |
-| TC-16 | Human review — financial boundary | Lead containing an explicit financing request | The AI may summarize and extract, and must not approve or reject; the lead is routed to a human with the extracted summary attached | | BLOCKED (P-GHL, P-N8N) |
+| TC-16 | Human review — financial boundary | Lead containing an explicit financing request | The AI may summarize and extract, and must not approve or reject; the lead is routed to a human with the extracted summary attached; no AI-written value appears in any stage or approval field | | BLOCKED (P-GHL, P-N8N) |
+| TC-17 | **Reconciliation recovers a lost webhook** | An opportunity created in GHL whose outbound webhook never reached n8n | The scheduled sweep detects the opportunity has no `external_lead_id` record, processes it through the normal path, and produces exactly the TC-01 end state — one backup row, not two | | BLOCKED (P-GHL, P-N8N, P-SHEET) |
+| TC-18 | Unauthorized webhook rejected | Request to the webhook URL with a missing or wrong shared secret | Rejected with 401 synchronously; **zero CRM artifacts**; zero backup rows; one `run_log` row recording the rejection; the rejection is distinguishable in logs from a validation failure | | BLOCKED (P-N8N) |
 
 ---
 

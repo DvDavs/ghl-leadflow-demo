@@ -89,26 +89,21 @@ in [`integration-options.md`](../integration-options.md); the outcome:
 | Enabling premium workflow features | **Layer 3 — UI** | No documented API |
 | Everything else | **Not layer 4** | The only UI-bound task is one-time workflow authoring, which a human does faster and more reliably than a script |
 
-Three things this exercise demonstrates about the rule itself:
+A single vendor-level decision would have been wrong in both directions: "use
+the MCP" strands workflow creation with no path, and "use the UI" discards a
+supported API surface for every data operation. Hence the per-operation split
+above.
 
-**The per-operation clause earned its place immediately.** A single
-vendor-level decision would have been wrong in both directions — "use the MCP"
-would have stranded workflow creation with no path, and "use the UI" would have
-discarded a fully supported API surface for every data operation.
+Two things follow, and both are practical rather than self-congratulatory:
 
-**Dropping to layer 3 required a citation, and got one.** Workflows are not
-merely hard to find in the MCP catalog; they are absent from it, and the REST
-API publishes retrieval only. That is recorded with URLs and a consultation
-date, so a future reader can re-check it rather than trust it.
+**Workflow configuration must be written up as a reproducible checklist**, or
+the demo cannot be rebuilt on a fresh location. That checklist does not exist
+yet and is a known gap.
 
-**The predicted consequence arrived on schedule.** The ADR warned that UI steps
-would not disappear, and they did not. Workflow configuration must be written up
-as a reproducible checklist, or the demo cannot be rebuilt on a fresh location.
-
-One caveat carried forward: the MCP's effective catalog is **grant-dependent and
-only fully discoverable at runtime** with a real token. The layer-1 assignments
-above are provisional until exercised, and any that fail fall to layer 2 — which
-is the hierarchy working, not the plan breaking.
+**The layer-1 assignments are provisional.** The MCP's effective catalog is
+grant-dependent and only fully discoverable at runtime with a real token.
+Anything that fails there falls to layer 2 — which is the hierarchy working, not
+the plan breaking.
 
 ## Consequences
 

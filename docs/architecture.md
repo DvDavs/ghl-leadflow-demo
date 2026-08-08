@@ -90,10 +90,10 @@ Diagram: [`diagrams/lead-lifecycle.md`](diagrams/lead-lifecycle.md).
 
 | Boundary | Trigger | Data crossing | Receiver guarantees |
 |---|---|---|---|
-| Sources → GHL | User submits | Name, email, phone, service interest, source event id if any | GHL persists a Contact, may create an Opportunity |
-| GHL Workflow → n8n | Opportunity created in `New Lead` | `externalLeadId`, `contactId`, `opportunityId`, contact fields, `source`, `submittedAt`, `locationId` | n8n acks **HTTP 200 fast**, before doing work. At-least-once assumed **[ASSUMPTION]** |
-| n8n → dedup ledger | Every delivery | `externalLeadId`, state, timestamps | Returns hit or miss. **Not atomic** — see §6.3 |
-| n8n → GHL | After dedup passes | Contact upsert, opportunity create/update, fields, tags, notes | Returns `contactId` / `opportunityId`, **which exist only after this call succeeds** |
+| Sources → GHL | User submits | Name, email, phone, service interest, source event id if any | GHL persists a Contact and creates an Opportunity. **This happens before n8n sees anything** — see §6.0 |
+| GHL Workflow → n8n | Opportunity created in `New Lead` | `externalLeadId`, `contactId`, `opportunityId`, contact fields, `source`, `submittedAt`, `locationId` | n8n validates the secret and required fields **synchronously**, rejecting with 401 or 422; otherwise acks 200 and continues asynchronously. At-least-once assumed **[ASSUMPTION]** |
+| n8n → dedup ledger | Every accepted delivery | `externalLeadId`, state, timestamps | Returns hit or miss. **Not atomic** — see §6.3 |
+| n8n → GHL | After dedup passes | Opportunity update, custom fields, tags, notes, stage moves | Mutations to records GHL already created. n8n creates a Contact itself only on the direct-ingress variant in §6.0 |
 | n8n → AI | After GHL persist | Free text plus form fields | Structured JSON with a confidence score. Bounded timeout, **no side effects** |
 | n8n → `leads_backup` | After GHL persist | Normalized event plus raw payload | At-least-once append; duplicate rows tolerated by design |
 | n8n → `run_log` | Every stage boundary | Log event, §7 | Best-effort. A failed log write must never fail the lead |
@@ -105,7 +105,8 @@ Diagram: [`diagrams/general-architecture.md`](diagrams/general-architecture.md).
 ## 5. Where state lives
 
 - **System of record — person and deal:** GHL. The client works in the CRM, so anything the CRM does not know is invisible to the business.
-- **System of record — event processed-ness:** the dedup ledger. GHL *cannot* own this, because the whole point is to decide *before* touching GHL.
+- **System of record — person-level deduplication:** GHL. Its contact upsert is what stops one human becoming two contacts, and it runs at capture, before n8n exists in the story. **[ASSUMPTION]** — the matching semantics are unverified, see [`integration-options.md`](integration-options.md) §5.
+- **System of record — event processed-ness:** the dedup ledger. GHL cannot own this, because it is a fact about *our deliveries*, not about the business.
 - **System of record — appointments:** GHL Calendar.
 - **Derived copy:** `leads_backup`. Append-only, never authoritative, never automatically read back into GHL.
 - **Queue, not truth:** `needs_human` — authoritative only for what a human still owes an answer on.
@@ -117,6 +118,43 @@ in backup. That is correct, not a defect.
 ## 6. Identity and idempotency
 
 Full reasoning in [ADR-002](decisions/ADR-002-idempotency-strategy.md). Summary:
+
+### 6.0 Where the ledger actually sits — and what it cannot do
+
+This is the most easily overstated part of the design, so it is stated plainly.
+
+**On the GHL-native ingress path** — a GHL form or a Facebook Lead Ads
+connection — **GHL creates the Contact and the Opportunity before n8n receives
+anything.** The webhook payload already carries `contactId` and `opportunityId`,
+which is proof that those records exist by the time we get a vote. The ledger is
+therefore downstream of the CRM write, and **it cannot prevent the CRM record
+that triggered it.**
+
+What each layer actually protects, on that path:
+
+| Duplicate of… | Prevented by | Not prevented by |
+|---|---|---|
+| **A person** — same human, two submissions | GHL's contact upsert **[ASSUMPTION]** | The ledger — it never sees the first write |
+| **A delivery** — one event, webhook sent twice | **The ledger** — zero downstream work on the second | — |
+| **An opportunity** — one event, two opportunities | The pre-create query on `external_lead_id` **[ASSUMPTION]** | The ledger alone |
+
+So the ledger's real job on this path is preventing **duplicate processing**: a
+second backup row, a second AI call, a second notification, a second stage
+mutation. That is genuinely worth having — it is what stops one lead becoming
+three sheet rows and two pages to a salesperson — but it is a smaller claim than
+"the ledger prevents duplicate CRM records", and the smaller claim is the true
+one.
+
+**On the direct-ingress variant** — a landing page *we* control, posting to the
+n8n webhook first — the ordering inverts: n8n dedups, then writes to GHL, and
+the ledger genuinely does gate the CRM write. This is the stronger design, and
+it is available for exactly the one source whose form we own. It is **not**
+available for GHL-hosted forms or a native Facebook connection, because those
+write to the CRM by construction.
+
+The demo uses the GHL-native path, because that is the realistic integration
+shape for this client. The direct-ingress variant is documented so the tradeoff
+is a decision rather than an accident.
 
 ### 6.1 The identity chain
 
@@ -143,13 +181,19 @@ identical events can both miss. With a Sheets-backed ledger the window is
 roughly **one to two seconds**; a database-backed ledger shrinks it to tens of
 milliseconds but still does not make it atomic.
 
-Two things bound the damage, and neither is a claim of exactly-once:
+Two things are *intended* to bound the damage, and **both rest on unverified
+capabilities** — see [ADR-002](decisions/ADR-002-idempotency-strategy.md):
 
 - A **second independent check** at the GHL layer — query opportunities by the
-  `external_lead_id` field before creating one.
-- GHL's contact upsert deduplicates on email and phone, so **a race cannot
-  produce a duplicate contact.** The exposed risk is a duplicate *opportunity*
-  only, which is a much smaller blast radius.
+  `external_lead_id` field before creating one. **[ASSUMPTION]** — searching by
+  a custom-field value is unconfirmed.
+- GHL's contact upsert is expected to deduplicate on email and/or phone, which
+  would make a duplicate *contact* impossible and leave only a duplicate
+  *opportunity* exposed. **[ASSUMPTION]** — matching semantics and behaviour
+  under concurrent calls are undocumented.
+
+Verify both as soon as a token exists. Until then: one real check, and two
+hoped-for ones.
 
 **[LATER]** A real atomic claim: a unique index with insert-or-ignore, or a
 queue partitioned by `externalLeadId` so identical keys serialize by
@@ -165,8 +209,13 @@ Operations are ordered so the business-critical write lands first and every
 later step is purely additive:
 
 ```
-GHL contact → GHL opportunity → ledger completed → backup → AI → routing → notification
+GHL contact → GHL opportunity → ledger claimed → routing → ledger completed → backup → AI → notification
 ```
+
+Routing precedes AI deliberately: routing reads the form's own `service` field,
+and uses AI only as a fallback hint when that field is absent or unrecognized.
+A pipeline whose routing depends on a model is a pipeline that misroutes when
+the model is down.
 
 A crash at any point leaves the lead **contactable**, which is the only
 invariant that truly matters.
@@ -219,7 +268,8 @@ A scheduled sweep every 10 minutes queries GHL for recent opportunities whose
 `external_lead_id` is absent, and pushes them through the normal path. This
 recovers leads whose webhook was lost entirely — the failure no amount of
 retry logic catches, because nothing ever arrived. It is the highest-value
-reliability feature in the build and it is achievable in two days.
+reliability feature in the build, and we estimate it is achievable within the
+sprint. It is covered by TC-17.
 
 ## 8. Trust boundaries
 

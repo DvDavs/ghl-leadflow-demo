@@ -107,6 +107,8 @@ Observable outcome, per layer:
 | Layer | First delivery | Second delivery |
 |---|---|---|
 | HTTP response | `200 accepted` | `200 accepted` — **identical** |
+| *(contrast: bad secret)* | `401` | `401` — rejected synchronously, never acked |
+| *(contrast: invalid payload)* | `422` | `422` — deterministic, non-retryable |
 | Ledger | insert `claimed`, then `completed` | lookup **hit**, short-circuit |
 | GHL API | contact upsert, opportunity create, field writes | **zero API calls** |
 | AI enrichment | called once | **not called** |
@@ -160,14 +162,31 @@ Two truly concurrent identical events can both miss:
 - A database-backed ledger shrinks it to tens of milliseconds, and still is not
   atomic.
 
-Two things bound the damage, and neither is a claim of exactly-once:
+Two things are intended to bound the damage. **Both depend on capabilities that
+are not yet verified**, so neither is a claim of exactly-once — and neither is
+yet a claim of anything:
 
 - **A second independent check at the GHL layer** — query opportunities by
-  `external_lead_id` before creating one. Two independent checks make a real
-  double-create unlikely without pretending atomicity.
-- **GHL's contact upsert deduplicates on email and phone**, so a race cannot
-  produce a duplicate *contact*. The exposed risk is a duplicate *opportunity*
-  only — a much smaller blast radius, and worth saying out loud.
+  `external_lead_id` before creating one. **[ASSUMPTION]** Custom fields are
+  classified *partial — unconfirmed* in
+  [`integration-options.md`](../integration-options.md) §5, and **searching
+  opportunities by a custom-field value is not confirmed at all.** If that
+  search does not exist, this check does not exist either.
+- **GHL's contact upsert is expected to deduplicate on email and/or phone**, in
+  which case a race could not produce a duplicate *contact* and the exposed risk
+  would be a duplicate *opportunity* only. **[ASSUMPTION]** The exact matching
+  semantics — email or phone or both — and the behaviour under concurrent calls
+  are undocumented. See §5 of the research.
+
+Verifying these two is the **first thing to do once a token exists.** Both are
+five-minute checks, and three documents currently lean on them. Until then, the
+honest statement of the race window is: one check (the ledger) is real, and the
+two that would bound it are unproven.
+
+Note also **where the ledger sits** — see [`../architecture.md`](../architecture.md)
+§6.0. On the GHL-native ingress path the CRM record already exists by the time
+the webhook fires, so the ledger prevents duplicate *processing* rather than the
+duplicate CRM record itself.
 
 In practice webhook retries arrive seconds apart rather than truly
 concurrently, which makes the window mostly theoretical here. That is an
