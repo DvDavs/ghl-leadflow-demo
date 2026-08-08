@@ -39,13 +39,25 @@ back-fitted to the implementation.
   [`docs/integration-options.md`](docs/integration-options.md), sourced from
   official documentation only.
 
+- **Adversarial review.** Ran before publication. Three blockers found and
+  fixed, the most serious being that the idempotency claim was wrong as drawn —
+  see the correction commit and `architecture.md` §6.0.
+- **Published.** Four commits on `main`, pushed over SSH. The untracked local
+  inventory is confirmed absent from the remote.
+- **Issue backlog.** 17 issues with priority and area labels; the three genuinely
+  complete ones closed against published, verified artifacts.
+
 # In Progress
 
-- Publishing the baseline to the public remote over SSH and reflecting real
-  state in GitHub Issues and the sprint Project.
+- Nothing. This milestone is complete except for the sprint Project board, which
+  is blocked below.
 
 # Blocked
 
+- **GitHub Project board.** The authenticated CLI token lacks the `project` and
+  `read:project` scopes, which can only be granted through an interactive
+  browser flow. The issues and labels exist and are correct; only the board is
+  outstanding.
 - **All GHL, n8n, and Google implementation work.** No external resource has
   been created. This is deliberate sequencing, not an obstacle.
 - **n8n hosting decision.** Cannot be finalized until we know whether an n8n
@@ -54,6 +66,17 @@ back-fitted to the implementation.
 - **Docker engine is stopped**, so container-level inventory is undetermined and
   a self-hosted n8n cannot start until it is started. Only relevant if
   self-hosting is chosen.
+
+# Known risks carried forward
+
+- **Two unverified GoHighLevel capabilities hold up the idempotency design:**
+  the matching semantics of contact upsert, and whether opportunities can be
+  searched by a custom-field value. Items 11 and 12 in
+  [`docs/integration-options.md`](docs/integration-options.md) §5. Both are
+  five-minute checks once a token exists, and three documents lean on them.
+- **The documentation-to-implementation ratio is now the main risk.** The design
+  set is thorough and nothing runs. One passing test case changes the meaning of
+  the whole repository; more prose does not.
 
 # Environment
 
@@ -82,12 +105,17 @@ Detail in [`docs/environment.md`](docs/environment.md).
 
 # Next 3 actions
 
-1. **Confirm the n8n hosting path** — ask whether an n8n instance already
-   exists. This single answer removes the largest unknown in the sprint.
-2. **Create the GoHighLevel test location**, pipeline, custom fields, and lead
-   capture form — the prerequisite that unblocks most of the test matrix.
-3. **Implement the single-service golden path end to end** (TC-01), then
-   immediately prove idempotency with TC-02 before adding any further scope.
+1. **Ask whether an n8n instance already exists.** One question, and it removes
+   the largest unknown in the sprint. Reusing an instance eliminates tunnel
+   rotation, Google OAuth setup, and the trial execution cap in one move.
+2. **Create the GoHighLevel sandbox and immediately verify the two unproven
+   capabilities** — contact upsert matching semantics, and searching
+   opportunities by a custom-field value. If either is unsupported, the
+   idempotency design needs rework, and that is far cheaper to discover on day
+   one than on day two.
+3. **Implement TC-01 end to end, then immediately TC-02**, before adding any
+   further scope. One passing duplicate-suppression test is worth more than any
+   additional design document.
 
 # Demo readiness
 
