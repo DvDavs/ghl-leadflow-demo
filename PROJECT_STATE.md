@@ -46,18 +46,17 @@ back-fitted to the implementation.
   inventory is confirmed absent from the remote.
 - **Issue backlog.** 17 issues with priority and area labels; the three genuinely
   complete ones closed against published, verified artifacts.
+- **Sprint board.** *GHL Leadflow Demo Sprint* — statuses Backlog, Ready, In
+  Progress, Testing, Done, Blocked, plus a P0–P3 priority field. All 17 issues
+  loaded and set to their real state: three Done, one Ready, eight Blocked,
+  five Backlog. The board is private; this file is the public mirror of it.
 
 # In Progress
 
-- Nothing. This milestone is complete except for the sprint Project board, which
-  is blocked below.
+- Nothing. This milestone is complete.
 
 # Blocked
 
-- **GitHub Project board.** The authenticated CLI token lacks the `project` and
-  `read:project` scopes, which can only be granted through an interactive
-  browser flow. The issues and labels exist and are correct; only the board is
-  outstanding.
 - **All GHL, n8n, and Google implementation work.** No external resource has
   been created. This is deliberate sequencing, not an obstacle.
 - **n8n hosting decision.** Cannot be finalized until we know whether an n8n
