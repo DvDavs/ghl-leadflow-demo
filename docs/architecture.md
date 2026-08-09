@@ -271,6 +271,32 @@ invariant that truly matters.
 | Sheets append failure | Backoff, few attempts | Append is **not** idempotent. Deliberate choice: **at-least-once**. A duplicate backup row is harmless; a missing one is not. |
 | AI failure or malformed output | At most one retry | No side effects. Then **degrade**: mark unknown, flag for human. The lead is created even if AI is entirely down. |
 
+#### The numbers, as actually built (P08)
+
+This table said "backoff, few attempts" and named no value, which meant it was
+a policy nobody could disagree with and nobody could test. The Sheets-append
+row is now concrete and implemented:
+
+| Parameter | Value |
+|---|---|
+| Max attempts | 3 — one first attempt plus two retries |
+| Base delay | 70s |
+| Growth | ×2, capped at 300s |
+| Jitter | additive only, 0–20% |
+| Terminal state | ledger `failed` + one `needs_human` row + `run_log` `outcome=retry_exhausted` |
+
+The two counter-intuitive choices — a 70-second base rather than a snappier
+one, and jitter that only ever adds — both come from a single n8n behaviour:
+a wait under 65 seconds is held in memory instead of being persisted. Full
+reasoning in [`n8n-setup.md`](n8n-setup.md) §5b. The other rows in the table
+above remain design, not evidence.
+
+The retry is held **inside the original execution** by a durable wait, not by a
+separate sweeper polling the ledger. That keeps exactly one copy of the backup
+write, so `cellFormat: RAW` cannot drift between two copies of a node — a
+failure this build has already had once. Its cost is that an execution lost
+mid-wait is not re-driven; reconciliation is the backstop.
+
 ### Structured logging
 
 One event per **delivery**, not per lead:
@@ -303,12 +329,27 @@ throttles the CRM — the wrong failure order. **[LATER]** a real log sink.
 
 ### Reconciliation
 
-A scheduled sweep every 10 minutes queries GHL for recent opportunities whose
-`external_lead_id` is absent, and pushes them through the normal path. This
-recovers leads whose webhook was lost entirely — the failure no amount of
-retry logic catches, because nothing ever arrived. It is the highest-value
-reliability feature in the build, and we estimate it is achievable within the
-sprint. It is covered by TC-17.
+A scheduled sweep every 10 minutes queries GHL for recent opportunities and
+pushes the unrecognised ones through the normal path. This recovers leads whose
+webhook was lost entirely — the failure no amount of retry logic catches,
+because nothing ever arrived. It is the highest-value reliability feature in
+the build. It is covered by TC-17.
+
+**Corrected in P08 — the sweep does not key on `external_lead_id`.** This
+section said it queried "recent opportunities whose `external_lead_id` is
+absent". That was never buildable: `search-opportunity` has no custom-field
+filter (ADR-002, confirmed 2026-08-08), so there is no way to ask GHL that
+question. What the sweep actually does is ask GHL for recent opportunities and
+then ask **our own ledger** whether it has ever seen the derived
+`ghl:opportunity-created:<opportunityId>`. The question moved from the vendor's
+side of the boundary to ours, which is the only side that can answer it.
+
+**Built, not yet activated.** The sweep exists as a published artifact and is
+deliberately inactive: it needs a GoHighLevel credential n8n does not have. The
+OAuth grant used elsewhere in this project belongs to the Claude Code MCP
+client and cannot be lent to n8n — an MCP session is not a runtime credential.
+A read-only Private Integration scoped to `opportunities.readonly` is the
+proportionate answer; see [`n8n-setup.md`](n8n-setup.md) §5d.
 
 ## 8. Trust boundaries
 
