@@ -2,12 +2,18 @@
 
 Behavioural test matrix for the GHL leadflow demo.
 
-**One scenario has passed: TC-02b (P05)**, with live evidence in its `Actual`
-column. The GoHighLevel leg — form → Contact → Opportunity → pipeline — exists
-and is proven. The Google Sheet exists with its three tabs, but no automation
-writes to it yet, and no n8n webhook is deployed, so every scenario needing
-P-N8N is still blocked. This file was written before the implementation so the
-acceptance criteria cannot drift to match whatever happens to work.
+**Five scenarios have passed: TC-01, TC-02, TC-02b, TC-18 and TC-19**, each
+with live evidence in its `Actual` column. The golden path now runs end to
+end — form → Contact → Opportunity → outbound webhook → n8n → Google Sheets —
+and survives a redelivery, a bad secret, and a formula-shaped lead name.
+
+What remains blocked is the reliability half: retry and failure handling
+(TC-09 through TC-12), reconciliation (TC-17), the re-inquiry branch (TC-03),
+and everything deliberately deferred.
+
+This file was written before the implementation so the acceptance criteria
+cannot drift to match whatever happens to work. Where a pass rests on deduced
+rather than directly read evidence, the `Actual` column says so.
 
 ## Status vocabulary
 
@@ -26,8 +32,8 @@ acceptance criteria cannot drift to match whatever happens to work.
 Scenarios are blocked on whichever of these does not yet exist:
 
 - **P-GHL** — a GoHighLevel test location with a pipeline, custom fields, and a lead-capture form. **Satisfied (P05)** — see [`PROJECT_STATE.md`](PROJECT_STATE.md).
-- **P-N8N** — a reachable n8n instance with the inbound webhook deployed. **Not satisfied** — n8n Cloud is provisioned, no webhook workflow is published.
-- **P-SHEET** — a Google Sheet configured as the backup destination. **Created** — `leads_backup`, `run_log`, and `needs_human` tabs exist with their headers; nothing writes to them yet.
+- **P-N8N** — a reachable n8n instance with the inbound webhook deployed. **Satisfied (P06)** — n8n Cloud, workflow published and active on its production webhook URL.
+- **P-SHEET** — a Google Sheet configured as the backup destination. **Satisfied (P06)** — `leads_backup` and `run_log` are written on the live path. `needs_human` exists with its headers and is deliberately unused until TC-08 and TC-12 are built.
 - **P-CAL** — a GoHighLevel calendar configured for appointment booking. **Not satisfied.**
 
 ## Golden path scope
@@ -68,6 +74,7 @@ The reliability scenarios (**TC-09 through TC-12**, plus **TC-17** and
 | TC-16 | Human review — financial boundary | Lead containing an explicit financing request | The AI may summarize and extract, and must not approve or reject; the lead is routed to a human with the extracted summary attached; no AI-written value appears in any stage or approval field | | BLOCKED (P-GHL, P-N8N) |
 | TC-17 | **Reconciliation recovers a lost webhook** | An opportunity created in GHL whose outbound webhook never reached n8n | The scheduled sweep detects the opportunity has no `external_lead_id` record, processes it through the normal path, and produces exactly the TC-01 end state — one backup row, not two | | BLOCKED (P-GHL, P-N8N, P-SHEET) |
 | TC-18 | Unauthorized webhook rejected | Request to the webhook URL with a missing or wrong shared secret | Rejected with 401 synchronously; zero GHL API calls issued by n8n; zero backup rows; exactly one `run_log` row recording the rejection, with an `outcome` distinct from the validation-failure value; no node after the secret check executes | Observed on **five live GHL deliveries** — n8n executions 1–5, 2026-08-09 04:31–05:17Z — during which the secret the normalizer resolved was empty, because it read the wrong payload path. Observationally this is the "missing secret" arm of this case. Every one of the five terminated at `Respond 401` (`responseCode: 401`). `Sheets: leads_backup` and `Ledger: Claim` never executed in any of them, so zero backup rows and zero ledger writes are proven by node absence rather than by counting rows. `Log Unauthorized` wrote exactly one row per delivery, `step=authorize`, `status=rejected`, `outcome=unauthorized` — distinct from the `invalid_payload` outcome TC-09 uses. The rejection row carries **no caller-supplied value**: `eventId`, `contactId` and `opportunityId` are deliberately empty, so an unauthenticated caller cannot write chosen content into the audit log. Zero GHL mutations — the workflow issues no GHL call on any path, and MCP reads confirm the records were untouched by n8n. These were real webhook deliveries from GHL, not scripted replays. **Both arms are covered.** Those five prove the absent-secret arm — the resolved value was empty. The wrong-value arm was then run deliberately via `scripts/replay-webhook.ps1 -Mode WrongSecret` (executions 8 and 10): same 401, same single `unauthorized` row, `Ledger: Claim` and `Sheets: leads_backup` again never executed. Execution 10 logged `n8n variable resolved: true`, which distinguishes a mismatched value from an unset variable and rules out the two failing for the same reason | PASS |
+| TC-19 | **Formula injection through the public form** | A lead submits a name beginning with `=`, delivered over the normal authorized path with GHL's own correct shared secret | The value is stored in `leads_backup` as literal text, never evaluated. The attacker holds no secret and needs none — this is reachable by anyone who can submit the public form, so path secrecy and the shared secret are both irrelevant to it | Live submission `=1+1 Testcase` 2026-08-09 15:33Z — n8n execution 11. The normalizer passed `name: "=1+1 Testcase"` to `Sheets: leads_backup`, the write succeeded, and `Respond 200 processed` was the last node. Operator read of the sheet shows the **literal text** `=1+1 Testcase` in the `name` column, not `2`. Confirms `options.cellFormat: "RAW"` is in effect on the published workflow. Note the boundary this does **not** cover: `RAW` governs storage only, so exporting `leads_backup` to CSV or XLSX and opening it in Excel or LibreOffice re-parses the leading `=` at import time regardless — see `docs/n8n-setup.md` | PASS |
 
 ---
 
@@ -84,6 +91,7 @@ draft — see [`docs/n8n-setup.md`](docs/n8n-setup.md) §5.
 | TC-02, execution 7 | 07:14 | `b162ad3f` |
 | TC-18 wrong-value, execution 8 | 07:15 | `b162ad3f` |
 | **TC-02 + TC-18 re-verification, executions 9 and 10** | 15:26 | published fix — debug object removed, `customData` fallback, normalised expressions |
+| **TC-19, execution 11** | 15:33 | published `cellFormat: RAW` fix |
 
 The re-verification covers every line changed by the security fix: the
 normalizer, the secret comparison, the dedup branch, and the rejection row's
@@ -91,11 +99,11 @@ new diagnostic column. Execution 10 logged
 `n8n variable resolved: true`, which additionally proves the rejection came
 from a genuinely mismatched value rather than an unset variable.
 
-**Not covered by any executed test:** the later `cellFormat: RAW` change on the
-eight Google Sheets nodes. It alters how values are stored, not control flow,
-and neither TC-02 nor TC-18 writes to `leads_backup` at all. Proving it needs a
-fresh TC-01 whose fixture begins with `=`. Recorded as outstanding rather than
-assumed safe.
+The later `cellFormat: RAW` change on the eight Google Sheets nodes was
+initially covered by nothing — neither TC-02 nor TC-18 writes to
+`leads_backup` at all. It is now covered by **TC-19** (execution 11, 15:33Z), a
+live submission whose name begins with `=`, verified both in the execution
+record and by reading the stored cell.
 
 ## Evidence policy
 
