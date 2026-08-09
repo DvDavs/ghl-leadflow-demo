@@ -22,7 +22,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "// TC-12 -- a complete, valid lead delivered while the downstream backup write\n// fails and keeps failing past the retry budget.\nreturn [{\n  json: {\n    customData: {\n      opportunityId: 'p08-tc12b-persistent',\n      contactId: 'p08-tc12b-contact',\n      name: 'Naledi Okonkwo',\n      email: 'naledi.okonkwo@example.com',\n      phone: '+1 202-555-0158',\n      business: 'Copperline Interiors',\n      service: 'Mortgage',\n      source: 'P08 Internal Test Harness',\n      stage: 'New Lead'\n    }\n  }\n}];\n"
+        "jsCode": "// Post-hardening re-verification of TC-10 and TC-11 against the Fault Gate's\n// prefix match on opportunityId.\nreturn [{\n  json: {\n    customData: {\n      opportunityId: 'p08-tc11b-transient',\n      contactId: 'p08-tc11b-contact',\n      name: 'Rosalie Ferrand',\n      email: 'rosalie.ferrand@example.com',\n      phone: '+1 202-555-0122',\n      business: 'Vantage Point Studio',\n      service: 'Mortgage',\n      source: 'P08 Internal Test Harness',\n      stage: 'New Lead'\n    }\n  }\n}];\n"
       }
     },
     {

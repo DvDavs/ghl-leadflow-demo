@@ -915,7 +915,10 @@
       "position": [
         224,
         0
-      ]
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -1113,7 +1116,10 @@
       "position": [
         928,
         0
-      ]
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -1221,7 +1227,10 @@
       "position": [
         1104,
         0
-      ]
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -1366,7 +1375,10 @@
       "position": [
         1280,
         0
-      ]
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -1523,7 +1535,10 @@
         912,
         304
       ],
-      "notes": "Left as 'failed', not deleted. A lost lead is unrecoverable; a duplicate is not. The row is what a reconciliation sweep would key on."
+      "notes": "Left as 'failed', not deleted. A lost lead is unrecoverable; a duplicate is not. The row is what a reconciliation sweep would key on.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -1670,7 +1685,10 @@
         1088,
         304
       ],
-      "notes": "Best effort. If Google Sheets is the thing that broke, this write fails too -- which is why the ledger row, not this log, is the durable failure record."
+      "notes": "Best effort. If Google Sheets is the thing that broke, this write fails too -- which is why the ledger row, not this log, is the durable failure record.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -1728,7 +1746,7 @@
         -160
       ],
       "parameters": {
-        "jsCode": "// Operator-only fault injection, for TC-10 / TC-11 / TC-12.\n//\n// The switch is a row in the `leadflow_test_controls` Data Table, which only\n// somebody with n8n access can write. It is deliberately NOT a payload field:\n// letting the public form decide whether the pipeline fails would hand an\n// anonymous submitter both a denial-of-service lever and a way to push chosen\n// leads into the human-review queue.\n//\n// The table is append-only, so flipping the switch means appending a new row\n// rather than editing the old one and the highest id wins. That is not a\n// workaround dressed up as a virtue -- it does cost a growing table -- but it\n// does mean the switch carries its own history, and 'who turned this on, and\n// when' is answerable after the fact.\n//\n// Fail-open by construction. A missing row, an unreadable table, or a value\n// this node does not recognise all mean 'off'. A broken test switch must\n// never be able to take production down.\nconst ctx = $('Ledger State').first().json;\n\nconst rows = $input.all()\n  .map((i) => i.json)\n  .filter((r) => r && r.key === 'backup_fault')\n  .sort((a, b) => Number(b.id ?? 0) - Number(a.id ?? 0));\n\nconst row = rows[0];\n\nconst mode = String(row?.mode ?? 'off').trim().toLowerCase();\nconst scope = String(row?.eventScope ?? '').trim();\n\n// An empty scope arms every delivery. A non-empty one arms only the eventIds\n// containing it, so a switch left on by accident cannot swallow an unrelated\n// lead.\nconst inScope = scope === '' || String(ctx.eventId).includes(scope);\n\nif (mode === 'always' && inScope) {\n  throw new Error('injected downstream failure (leadflow_test_controls.backup_fault=always, scope=\"' + scope + '\")');\n}\n\nreturn [{ json: ctx, pairedItem: { item: 0 } }];\n"
+        "jsCode": "// Operator-only fault injection, for TC-10 / TC-11 / TC-12.\n//\n// The switch is a row in the `leadflow_test_controls` Data Table, which only\n// somebody with n8n access can write. It is deliberately NOT a payload field:\n// letting the public form decide whether the pipeline fails would hand an\n// anonymous submitter both a denial-of-service lever and a way to push chosen\n// leads into the human-review queue.\n//\n// The table is append-only, so flipping the switch means appending a new row\n// rather than editing the old one, and the highest id wins. That began as a\n// constraint -- n8n exposes no row update -- and turned out better than a\n// mutable flag: the switch carries its own history, so 'who armed this, when,\n// and why' is answerable after the fact. The cost is a table that only grows.\n//\n// Fail-open by construction. A missing row, an unreadable table, or a value\n// this node does not recognise all mean 'off'. A broken test switch must\n// never be able to take production down.\nconst ctx = $('Ledger State').first().json;\n\nconst rows = $input.all()\n  .map((i) => i.json)\n  .filter((r) => r && r.key === 'backup_fault')\n  .sort((a, b) => Number(b.id ?? 0) - Number(a.id ?? 0));\n\nconst row = rows[0];\n\nconst mode = String(row?.mode ?? 'off').trim().toLowerCase();\nconst scope = String(row?.eventScope ?? '').trim();\n\n// Scope is a PREFIX of the opportunityId, not a substring of the eventId.\n//\n// It was a substring match until an adversarial review pointed out that\n// opportunityId arrives verbatim from the payload, so a caller who held the\n// shared secret and knew the armed scope could embed it anywhere in an id and\n// steer a chosen lead into the human-review queue. A prefix match on the id\n// alone is narrower, and matches how the scope is actually documented.\n//\n// An empty scope still arms every delivery, which is why production is left\n// with mode=off rather than relying on scope to be set.\nconst opportunityId = String(ctx.opportunityId ?? '');\nconst inScope = scope === '' || opportunityId.startsWith(scope);\n\nif (mode === 'always' && inScope) {\n  throw new Error('injected downstream failure (leadflow_test_controls.backup_fault=always, scope=\"' + scope + '\")');\n}\n\nreturn [{ json: ctx, pairedItem: { item: 0 } }];\n"
       },
       "onError": "continueErrorOutput"
     },
@@ -1927,7 +1945,7 @@
         432
       ],
       "parameters": {
-        "operation": "append",
+        "operation": "appendOrUpdate",
         "documentId": {
           "__rl": true,
           "value": "REPLACE_WITH_SHEET_ID",
@@ -1951,7 +1969,9 @@
             "owner": "unassigned",
             "lastAction": "retry_exhausted"
           },
-          "matchingColumns": [],
+          "matchingColumns": [
+            "eventId"
+          ],
           "schema": [
             {
               "id": "timestamp",
@@ -2039,7 +2059,10 @@
         "options": {
           "cellFormat": "RAW"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     }
   ],
   "connections": {

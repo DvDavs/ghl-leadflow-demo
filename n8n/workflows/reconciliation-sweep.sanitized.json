@@ -130,7 +130,7 @@
         192
       ],
       "parameters": {
-        "jsCode": "// An opportunity needs recovery only if the ledger has never seen it.\n//\n// A row in ANY state means the webhook did arrive. 'completed' is done, and\n// 'claimed', 'retry_scheduled' and 'failed' all belong to the retry loop,\n// which owns them. The sweep must never race the retry loop for one event.\n//\n// This is also what makes the sweep safe to run twice: the first run writes\n// a completed ledger row, and every run after that sees it and skips.\nconst candidate = $('One Candidate At A Time').first().json;\n\nconst existing = $input.all()\n  .map((i) => i.json)\n  .find((r) => r && r.eventId === candidate.eventId) ?? null;\n\nreturn [{\n  json: {\n    ...candidate,\n    ledgerFound: existing !== null,\n    ledgerStatus: existing?.status ?? '',\n    needsRecovery: existing === null\n  },\n  pairedItem: { item: 0 }\n}];\n"
+        "jsCode": "// Decide whether this opportunity needs recovering.\n//\n// The first version of this node recovered only events with NO ledger row at\n// all, on the reasoning that a row in any state means the webhook arrived and\n// the retry loop owns it. An adversarial review found the hole: the retry loop\n// lives inside one execution, so if that execution dies -- crashed, cancelled,\n// deleted -- its row stays `claimed` or `retry_scheduled` forever and this\n// node was refusing to touch it. That is a silent loss with a paper trail,\n// which is the worst kind.\n//\n// So there are now two recovery cases:\n//\n//   1. No ledger row      the webhook never arrived. The original case.\n//   2. A STALE row         a row that is not `completed` and has not been\n//                          touched for longer than any live retry ladder could\n//                          possibly take.\n//\n// The staleness threshold is what keeps case 2 from racing a retry that is\n// simply asleep. The whole ladder is 3 attempts over roughly 4 minutes, so 30\n// minutes of silence is not a slow retry -- it is a dead one.\nconst STALE_AFTER_MINUTES = 30;\n\nconst candidate = $('One Candidate At A Time').first().json;\n\nconst existing = $input.all()\n  .map((i) => i.json)\n  .find((r) => r && r.eventId === candidate.eventId) ?? null;\n\nconst status = String(existing?.status ?? '');\n\n// updatedAt is maintained by n8n itself, which is why the ledger deliberately\n// has no user column of that name.\nconst touchedAt = Date.parse(String(existing?.updatedAt ?? existing?.createdAt ?? ''));\nconst quietMs = Number.isFinite(touchedAt) ? (Date.now() - touchedAt) : Infinity;\nconst isStale = quietMs > STALE_AFTER_MINUTES * 60 * 1000;\n\n// `completed` is always final. A recovered `failed` event keeps its\n// needs_human row open -- recovery writes the backup row a human was told was\n// missing, it does not decide that the human is finished.\nconst needsRecovery = existing === null || (status !== 'completed' && isStale);\n\nreturn [{\n  json: {\n    ...candidate,\n    ledgerFound: existing !== null,\n    ledgerStatus: status,\n    ledgerQuietMinutes: Number.isFinite(quietMs) ? Math.round(quietMs / 60000) : null,\n    recoveryReason: existing === null\n      ? 'no ledger row; webhook never arrived'\n      : (needsRecovery\n        ? ('ledger row stuck at ' + status + ' for ' + Math.round(quietMs / 60000) + ' minutes')\n        : 'ledger row present and healthy'),\n    needsRecovery\n  },\n  pairedItem: { item: 0 }\n}];\n"
       }
     },
     {
@@ -362,7 +362,10 @@
         "options": {
           "cellFormat": "RAW"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "id": "bde2db1b-e362-43d9-9016-d83cd9dcfd9d",
@@ -398,7 +401,7 @@
             "step": "reconcile",
             "status": "ok",
             "attempt": "1",
-            "error": "={{ 'opportunity created at ' + $('Missing From Ledger?').first().json.timestamp + ' had no ledger row; webhook never arrived' }}",
+            "error": "={{ $('Missing From Ledger?').first().json.recoveryReason }}",
             "outcome": "reconciled"
           },
           "schema": [
@@ -506,7 +509,10 @@
         "options": {
           "cellFormat": "RAW"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "id": "63c68786-ad31-4586-a458-3940d0d7ef2c",
@@ -645,7 +651,10 @@
           "convertFieldsToString": false
         },
         "options": {}
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "id": "d56e5406-36b4-4f7f-a120-ea6287f4a33c",

@@ -209,6 +209,23 @@ does not exist. Its query has never returned a live `200`, so it is recorded as
   time — so it never enters an item or execution data — and an evidence reader
   over the three sheet tabs, the ledger and the fault switch. Neither has a
   public trigger.
+- **Adversarial review ran before the push and returned FAIL, and the findings
+  were fixed rather than argued with — P08.** Three were contradictions this
+  session introduced: the docs claimed the reconciliation sweep was the backstop
+  for a dead retry while the sweep's own rule said it skipped any event with a
+  ledger row. Two were real holes. Only the backup write was error-guarded, so a
+  transient Sheets error on a *bookkeeping* node would abort a run into a
+  `claimed` row with no backup row, no `needs_human` row and no HTTP response —
+  and the sweep was forbidden to touch it. And `Sheets: needs_human`, the
+  terminal safety net, was the least protected node in the graph, which is
+  exactly the failure that had already been observed once. Fixes: node-level
+  retry on every write between the claim and a terminal state; `needs_human`
+  made idempotent per `eventId`; the fault scope narrowed from a substring on a
+  caller-supplied `eventId` to a prefix on `opportunityId`; and the sweep now
+  also recovers a ledger row that is not `completed` and has been quiet for
+  more than 30 minutes. The golden path and TC-10/TC-11 were re-run against the
+  hardened artifact; TC-12's hardened exhaustion branch is **unexercised** and
+  says so.
 - **Three defects found by the tests they were meant to pass.** The 422 body
   named no field; every node on the failure branch read `$json`, which by then
   held the row the previous write had returned rather than the decision item;

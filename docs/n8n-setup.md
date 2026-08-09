@@ -156,7 +156,7 @@ Create a second Data Table named `leadflow_test_controls`:
 |---|---|---|
 | `key` | String | Only `backup_fault` is used today. |
 | `mode` | String | `off` \| `always`. Anything else means `off`. |
-| `eventScope` | String | Empty arms every delivery. Otherwise only `eventId`s containing this substring fail. |
+| `eventScope` | String | Empty arms every delivery. Otherwise only `opportunityId`s **beginning with** this string fail. |
 | `note` | String | Why it was flipped, for whoever finds it later. |
 
 This is how TC-10, TC-11 and TC-12 make the downstream write fail on demand.
@@ -179,7 +179,15 @@ answerable after the fact. The cost is a table that only grows.
 `mode` all resolve to `off`. A broken test switch must never be able to take
 production down — the failure mode of a safety device has to be the safe one.
 
-Leave it `off`. The last row appended during P08 says so explicitly.
+**The scope is a prefix on `opportunityId`, and it was a substring on `eventId`
+until a review caught it.** `opportunityId` arrives verbatim from the payload,
+so a substring match meant that anyone holding the shared secret who also knew
+the armed scope could embed it anywhere in an id and push a chosen lead into
+the human-review queue. A prefix on the id alone is narrower, and it matches
+how the scope is described here — which the substring version did not.
+
+Leave it `off`. The last row appended during P08 says exactly that, and
+`run_log` plus the table's own history are how you check rather than assume.
 
 ## 5. Import the workflow
 
@@ -345,9 +353,24 @@ a durable `Wait`. That keeps one copy of the backup-write node — and `RAW` on
 one node cannot drift out of sync with `RAW` on a second copy, which is a
 failure this repository has already had once. The cost is honest and worth
 naming: if an execution is lost while waiting, its ledger row stays
-`retry_scheduled` forever and nothing re-drives it. The reconciliation sweep
-below is the backstop for exactly that, and there is a real instance of it in
-the ledger today — see "Known limitations".
+`retry_scheduled` and that execution will never resume.
+
+**The sweep is the backstop, but only because it was changed to be one.** As
+first built it recovered events with *no* ledger row at all, on the reasoning
+that a row in any state meant the retry loop owned it. An adversarial review
+found the hole: a dead execution's row is indistinguishable from a live one's
+under that rule, so nothing could ever re-drive it. `Missing From Ledger?` now
+also recovers a row that is **not `completed`** and has been **quiet for longer
+than 30 minutes** — the full ladder is three attempts over roughly four
+minutes, so half an hour of silence is a dead retry, not a slow one. See §5d.
+
+**Every write between the claim and a terminal state now carries node-level
+retry** (`retryOnFail`, 3 tries, 5s apart). The same review pointed out that
+only the backup write was guarded, so a transient Google Sheets error on a
+*bookkeeping* node — `Log Claim`, say — would abort the run with a `claimed`
+ledger row, no backup row, no `needs_human` row, and no HTTP response at all.
+Node-level retry narrows that window; the sweep's staleness rule closes what is
+left.
 
 ### 5c. Manual replay of an exhausted event
 
@@ -362,8 +385,12 @@ the same `eventId`. Two ways to trigger that:
    Append-or-Update on `eventId`, so a success after replay produces one row,
    not two.
 2. **Let the reconciliation sweep find it**, if the payload was never captured.
-   This only works when a real GHL Opportunity exists behind the event — see
-   §5d.
+   Two conditions, and the second is the binding one: a real GHL Opportunity
+   must exist behind the event, **and** the `failed` ledger row must have been
+   quiet for more than 30 minutes. Inside that window the sweep deliberately
+   leaves it alone, because a row that was touched recently might belong to a
+   retry that is merely asleep. Recovery writes the backup row; it does **not**
+   close the `needs_human` row, which stays `open` for a human to resolve.
 
 Work the `needs_human` queue by `eventId`; the row carries the `correlationId`
 of the delivery that gave up, which is the search key for the whole trail in
@@ -392,7 +419,7 @@ Every 10 Minutes
   → Select Candidates              derive eventId, filter to a 24h lookback
   → One Candidate At A Time        batchSize 1
        → Ledger: Look Up Candidate
-       → Missing From Ledger?
+       → Missing From Ledger?   absent, or not completed and quiet 30min+
        → Needs Recovery?  no  → Already Known - Skip
                           yes → Sheets: leads_backup (Append or Update)
                                 → Log Reconciled  (outcome=reconciled)
@@ -405,9 +432,19 @@ Four design points, each of which is a way this could have been got wrong:
   (`ghl:opportunity-created:<opportunityId>`). If the two ever diverged, the
   sweep would "recover" events the ledger had already completed and write
   second rows. That one line is load-bearing.
-- **A ledger row in *any* state means skip.** Not just `completed`:
-  `claimed`, `retry_scheduled` and `failed` all belong to the retry loop, which
-  owns them. The sweep must never race the retry loop for one event.
+- **`completed` always means skip; anything else means skip only while it is
+  fresh.** The first version skipped a ledger row in *any* state, on the
+  reasoning that the retry loop owned it. That was wrong in the one case that
+  matters: a dead execution's `claimed` or `retry_scheduled` row looks
+  identical to a live one's, so nothing could ever re-drive it. The rule is now
+  `status !== 'completed'` **and** quiet for more than **30 minutes**. The
+  whole ladder is three attempts over roughly four minutes, so that threshold
+  cannot race a retry that is merely asleep — it can only catch one that is
+  dead. Staleness is read from n8n's own `updatedAt`, which is why the ledger
+  deliberately has no user column of that name.
+- **A recovered `failed` event keeps its `needs_human` row open.** Recovery
+  writes the backup row that a human was told was missing; it does not decide
+  that the human is finished.
 - **Safe to run twice**, by construction and twice over: the first run writes a
   `completed` ledger row that every later run sees, and the backup write is
   Append-or-Update on `eventId` regardless.
@@ -633,16 +670,22 @@ without exposing the secret or even its length.
   injection. It is a deliberate trade — an unlogged rejection is invisible,
   and TC-18 is judged on that row existing. Rate limiting at the edge is the
   real fix and is `[LATER]`.
-- **A retry that dies mid-wait is not re-driven.** The retry lives inside the
-  original execution. If that execution is lost — crashed, cancelled,
-  deleted — its ledger row stays `retry_scheduled` with a `nextAttemptAt` in
-  the past and nothing picks it up. **There is a live instance in the ledger
-  right now:** row `id=5`, `ghl:opportunity-created:p08-tc10-transient`, left
-  behind by a P08 execution that died on a defect in the retry branch before
-  that defect was fixed. It is left in place rather than quietly cleaned,
-  because it is the honest shape of this limitation. A sweeper over the ledger
-  would close it and is `[LATER]`; the reconciliation sweep does **not**,
-  because it keys on GHL opportunities and this `opportunityId` is synthetic.
+- **A retry that dies mid-wait is not resumed by n8n, and is recovered only by
+  the sweep.** The retry lives inside the original execution; if that execution
+  is lost, its ledger row stays `retry_scheduled` and nothing re-drives it
+  in-process. The sweep's 30-minute staleness rule is what recovers it — but
+  **only when a real GHL Opportunity exists behind the event.** There is a
+  live instance that will therefore never be recovered: ledger row `id=5`,
+  `ghl:opportunity-created:p08-tc10-transient`, orphaned by a P08 execution
+  that died on a defect before that defect was fixed. Its `opportunityId` is
+  synthetic, so no sweep will ever see it. Left in place rather than quietly
+  cleaned, because it is the honest shape of this limitation.
+- **A hard failure before the first Respond node leaves the caller hanging.**
+  The webhook uses `responseMode: responseNode`, so a node that aborts the run
+  before any Respond node executes sends nothing at all; the caller waits for
+  its own timeout. Node-level retry on every write between the claim and a
+  terminal state makes this much less likely, and does not make it impossible.
+  A catch-all error branch answering `500` is the real fix and is `[LATER]`.
 - **A `failed` ledger row is not proof a human was told.** The terminal
   `needs_human` write is a separate node and can fail on its own. Ledger row
   `id=7` is exactly that case. Judge the handoff on the `needs_human` row.
