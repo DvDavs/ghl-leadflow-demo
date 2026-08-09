@@ -224,7 +224,39 @@ Evidence required before any of these is marked `PASS` is enumerated in
 [`../TEST_CASES.md`](../TEST_CASES.md). A status code alone proves nothing
 about downstream state.
 
-## 8. Known limitations of this build
+## 8. Troubleshooting: every delivery returns 401
+
+The secret check fails closed on purpose — an unset variable must never
+authorize a request:
+
+```js
+const secretConfigured = expected.length > 0;
+const authorized = secretConfigured && provided === expected;
+```
+
+That means **a missing or misnamed n8n variable and a genuine value mismatch
+produce the identical 401**. Observed live during the P06 build: the GHL leg
+worked, merge tags resolved, the webhook fired, and n8n rejected every
+delivery.
+
+Diagnose in this order:
+
+1. **Variable key, character-exact.** `Settings → Variables` must show
+   `GHL_WEBHOOK_SHARED_SECRET` — uppercase, underscores, no prefix, no typo.
+   A key that differs by one character produces a permanent 401 that looks
+   exactly like a wrong password. Check this first; it costs five seconds and
+   it is the highest-probability cause.
+2. **No quotes, no wrapper.** In GHL's Custom Data the `sharedSecret` row must
+   be *static text*. Typing `"value"` with quotes stores the quotes; the
+   comparison trims whitespace but does not strip quote characters.
+3. **Re-enter the value in both places** rather than trying to compare them by
+   eye. Never paste either one into chat, a commit, an Issue, or a screenshot.
+
+The `run_log` row for a rejection carries
+`n8n variable resolved: true|false`, which separates cause 1 from cause 3
+without exposing the secret or even its length.
+
+## 9. Known limitations of this build
 
 - **Not exactly-once.** A crash between the `leads_backup` write and the ledger
   reaching `completed` leaves a stale `claimed` row. A redelivery then does not

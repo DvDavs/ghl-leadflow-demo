@@ -3,11 +3,11 @@
   "eventType": "opportunity.created",
   "contactId": "EXAMPLE_CONTACT_ID_0001",
   "opportunityId": "EXAMPLE_OPPORTUNITY_ID_0001",
-  "name": "Marisol Vega",
-  "email": "marisol.vega@example.com",
-  "phone": "+1 202-555-0142",
-  "business": "Vega Consulting",
-  "service": "Real Estate",
+  "name": "Tobias Lind",
+  "email": "tobias.lind@example.com",
+  "phone": "+1 202-555-0175",
+  "business": "",
+  "service": "Business Loan",
   "source": "GHL Demo Form",
   "stage": "New Lead"
 }
