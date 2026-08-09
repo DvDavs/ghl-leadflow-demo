@@ -8,27 +8,26 @@
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "webhook-ingress",
+      "id": "fbd234a9-5a51-439f-8dfe-284963d7d374",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [
-        -220,
-        380
-      ],
-      "webhookId": "REPLACE_WITH_UNGUESSABLE_PATH"
+        -1536,
+        240
+      ]
     },
     {
       "parameters": {
-        "jsCode": "// Allowlist normalization, secret comparison, and identity minting for one\n// GoHighLevel outbound-webhook delivery.\n//\n// This node performs no writes and must never throw. A malformed or hostile\n// body has to reach the 401 / 422 branches, not crash the execution into a\n// 500 that GHL would then retry.\n\nconst body = $input.first().json.body ?? {};\n\n// GHL nests the declared Custom Data under a `customData` object. The\n// vendor doc example shows these keys flattened to the root; that is wrong,\n// and building against it cost six diagnostic deliveries on 2026-08-09.\n// Read the nested object, fall back to the root, so the workflow survives\n// either shape rather than depending on which one the vendor ships.\nconst cd = (body.customData && typeof body.customData === 'object')\n  ? body.customData\n  : body;\n\nconst str = (v) => (v === undefined || v === null) ? '' : String(v).trim();\n\n// GHL's free Outbound Webhook action supports no custom headers and no\n// signature, so the shared secret travels in the body. It is compared here,\n// before any write of any kind.\nconst expected = str($vars.GHL_WEBHOOK_SHARED_SECRET);\nconst provided = str(cd.sharedSecret);\n\n// Fail closed: an unset variable must never authorize a request.\nconst secretConfigured = expected.length > 0;\nconst authorized = secretConfigured && provided === expected;\n\nconst opportunityId = str(cd.opportunityId);\nconst contactId = str(cd.contactId);\nconst email = str(cd.email);\n\n// opportunityId is required twice over: for the backup row, and because the\n// entire delivery identity is derived from it.\nconst required = { opportunityId, contactId, email };\nconst missing = Object.keys(required).filter((k) => required[k] === '');\n\nreturn [{\n  json: {\n    authorized,\n\n    // Distinguishes 'the n8n variable is missing or misnamed' from 'the two\n    // secrets simply differ'. Both produce a 401, and without this they are\n    // indistinguishable from outside. Reports only whether the variable\n    // resolved -- never its value, and never its length.\n    secretConfigured,\n\n    valid: missing.length === 0,\n    missingFields: missing.join(','),\n\n    // Stable per event. Derived, never sent by GHL. Consistent with ADR-002,\n    // this exists only once GHL has already created the Opportunity, so it\n    // dedupes deliveries and must never gate whether the Opportunity is made.\n    eventId: opportunityId ? ('ghl:opportunity-created:' + opportunityId) : '',\n\n    // New per delivery. A redelivery is a new execution, so this changes --\n    // which is exactly what makes a duplicate legible in run_log.\n    correlationId: 'n8n:' + $execution.id,\n\n    timestamp: new Date().toISOString(),\n\n    contactId,\n    opportunityId,\n    name: str(cd.name),\n    email,\n    phone: str(cd.phone),\n    business: str(cd.business),\n    service: str(cd.service),\n    source: str(cd.source),\n    stage: str(cd.stage),\n    appointment: '',\n    lastAction: 'webhook_received'\n  }\n}];\n"
+        "jsCode": "// Allowlist normalization, secret comparison, and identity minting for one\n// GoHighLevel outbound-webhook delivery.\n//\n// This node performs no writes and must never throw. A malformed or hostile\n// body has to reach the 401 / 422 branches, not crash the execution into a\n// 500 that GHL would then retry.\n\nconst body = $input.first().json.body ?? {};\n\n// GHL nests the declared Custom Data under a `customData` object. The vendor\n// doc example shows these keys flattened to the root; that is wrong, and\n// building against it cost six diagnostic deliveries on 2026-08-09. Read the\n// nested object, fall back to the root, so the workflow survives either shape\n// rather than depending on which one the vendor ships.\nconst cd = (body.customData && typeof body.customData === 'object')\n  ? body.customData\n  : body;\n\nconst str = (v) => (v === undefined || v === null) ? '' : String(v).trim();\n\n// GHL's free Outbound Webhook action supports no custom headers and no\n// signature, so the shared secret travels in the body. It is compared here,\n// before any write of any kind.\nconst expected = str($vars.GHL_WEBHOOK_SHARED_SECRET);\nconst provided = str(cd.sharedSecret);\n\n// Fail closed: an unset variable must never authorize a request.\nconst secretConfigured = expected.length > 0;\nconst authorized = secretConfigured && provided === expected;\n\nconst opportunityId = str(cd.opportunityId);\nconst contactId = str(cd.contactId);\nconst email = str(cd.email);\nconst phone = str(cd.phone);\n\n// opportunityId is required twice over: for the backup row, and because the\n// entire delivery identity is derived from it.\nconst required = { opportunityId, contactId };\nconst missing = Object.keys(required).filter((k) => required[k] === '');\n\n// A lead has to be reachable. It does not have to be reachable by email.\n// Until P08 this node required `email` outright, which rejected a phone-only\n// lead the business could simply have called back -- the one outcome\n// architecture.md 7 says must never happen, since its invariant is that a\n// lead stays CONTACTABLE. Either channel satisfies that; neither does not.\n// The pseudo-field name is deliberate: the 422 body then names the rule that\n// was broken instead of arbitrarily blaming one of the two fields.\nif (email === '' && phone === '') {\n  missing.push('email_or_phone');\n}\n\nreturn [{\n  json: {\n    authorized,\n\n    // Distinguishes 'the n8n variable is missing or misnamed' from 'the two\n    // secrets simply differ'. Both produce a 401, and without this they are\n    // indistinguishable from outside.\n    //\n    // This replaces a diagnostic object that also emitted the expected and\n    // provided secret LENGTHS. Those travelled in every item and were\n    // persisted in execution data. A boolean answers the same question and\n    // discloses nothing about the secret itself.\n    secretConfigured,\n\n    valid: missing.length === 0,\n    missingFields: missing.join(','),\n\n    // Stable per event. Derived, never sent by GHL. Consistent with ADR-002,\n    // this exists only once GHL has already created the Opportunity, so it\n    // dedupes deliveries and must never gate whether the Opportunity is made.\n    eventId: opportunityId ? ('ghl:opportunity-created:' + opportunityId) : '',\n\n    // New per delivery. A redelivery is a new execution, so this changes --\n    // which is exactly what makes a duplicate legible in run_log.\n    correlationId: 'n8n:' + $execution.id,\n\n    timestamp: new Date().toISOString(),\n\n    contactId,\n    opportunityId,\n    name: str(cd.name),\n    email,\n    phone,\n    business: str(cd.business),\n    service: str(cd.service),\n    source: str(cd.source),\n    stage: str(cd.stage),\n    appointment: '',\n    lastAction: 'webhook_received'\n  }\n}];\n"
       },
-      "id": "normalize-authorize",
+      "id": "2edd3368-0a4a-4918-b1a2-cd354bc4af52",
       "name": "Normalize and Authorize",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        0,
-        380
+        -1328,
+        240
       ]
     },
     {
@@ -57,13 +56,13 @@
         "looseTypeValidation": true,
         "options": {}
       },
-      "id": "if-authorized",
+      "id": "5afa6d20-77ca-4c8a-8de4-364b77a9fad1",
       "name": "Authorized?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        220,
-        380
+        -1104,
+        240
       ]
     },
     {
@@ -84,9 +83,6 @@
           "value": {
             "timestamp": "={{ $json.timestamp }}",
             "correlationId": "={{ $json.correlationId }}",
-            "eventId": "",
-            "contactId": "",
-            "opportunityId": "",
             "workflow": "ghl-opportunity-to-sheets",
             "step": "authorize",
             "status": "rejected",
@@ -95,19 +91,121 @@
             "outcome": "unauthorized"
           },
           "matchingColumns": [],
-          "schema": []
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "correlationId",
+              "displayName": "correlationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "eventId",
+              "displayName": "eventId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contactId",
+              "displayName": "contactId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "opportunityId",
+              "displayName": "opportunityId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "workflow",
+              "displayName": "workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "step",
+              "displayName": "step",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "attempt",
+              "displayName": "attempt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error",
+              "displayName": "error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outcome",
+              "displayName": "outcome",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
         },
         "options": {
           "cellFormat": "RAW"
         }
       },
-      "id": "log-unauthorized",
+      "id": "754a0b68-fa64-4c67-891e-85c98d361dc4",
       "name": "Log Unauthorized",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
       "position": [
-        440,
-        620
+        -880,
+        480
       ],
       "notes": "Deliberately logs NO caller-supplied value -- not the eventId, not the ids. An unauthenticated caller must not be able to write attacker-chosen content into the audit log."
     },
@@ -119,13 +217,13 @@
           "responseCode": 401
         }
       },
-      "id": "respond-401",
+      "id": "8f265dfe-6342-4de7-a47a-c6217dec94e0",
       "name": "Respond 401",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        660,
-        620
+        -656,
+        480
       ]
     },
     {
@@ -154,13 +252,13 @@
         "looseTypeValidation": true,
         "options": {}
       },
-      "id": "if-valid",
+      "id": "6f979336-8016-4b91-975f-588a2fe0eb7e",
       "name": "Payload Valid?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        440,
-        320
+        -880,
+        192
       ]
     },
     {
@@ -192,67 +290,166 @@
             "outcome": "invalid_payload"
           },
           "matchingColumns": [],
-          "schema": []
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "correlationId",
+              "displayName": "correlationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "eventId",
+              "displayName": "eventId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contactId",
+              "displayName": "contactId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "opportunityId",
+              "displayName": "opportunityId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "workflow",
+              "displayName": "workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "step",
+              "displayName": "step",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "attempt",
+              "displayName": "attempt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error",
+              "displayName": "error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outcome",
+              "displayName": "outcome",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
         },
         "options": {
           "cellFormat": "RAW"
         }
       },
-      "id": "log-invalid",
+      "id": "ef7b8a5a-18f1-44ce-bd22-2aae75631681",
       "name": "Log Invalid Payload",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
       "position": [
-        660,
-        460
+        -656,
+        320
       ],
       "notes": "Logs the NAMES of the missing fields, taken from our own allowlist -- never the caller's values."
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ status: 'invalid_payload', missing: $json.missingFields }) }}",
+        "responseBody": "={{ JSON.stringify({ status: 'invalid_payload', missing: $('Normalize and Authorize').first().json.missingFields }) }}",
         "options": {
           "responseCode": 422
         }
       },
-      "id": "respond-422",
+      "id": "828dee4f-57a6-4610-b307-38ce9ad981c2",
       "name": "Respond 422",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        880,
-        460
+        -448,
+        320
       ],
       "notes": "422 is deterministic and non-retryable: the same payload will always fail the same way, so a retry is pure noise."
     },
     {
       "parameters": {
-        "resource": "row",
         "operation": "get",
         "dataTableId": {
           "__rl": true,
-          "value": "REPLACE_WITH_DATA_TABLE_ID",
+          "value": "REPLACE_WITH_LEDGER_DATA_TABLE_ID",
           "mode": "id"
         },
         "filters": {
           "conditions": [
             {
               "keyName": "eventId",
-              "condition": "eq",
               "keyValue": "={{ $json.eventId }}"
             }
           ]
-        },
-        "options": {}
+        }
       },
-      "id": "ledger-lookup",
+      "id": "0b0c5936-8f51-4c28-9174-6552665f5521",
       "name": "Ledger: Look Up Event",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1,
       "position": [
-        660,
-        260
+        -656,
+        128
       ],
       "alwaysOutputData": true,
       "notes": "Always Output Data is ON deliberately: a miss must still emit an item, otherwise the whole new-event branch silently stops."
@@ -261,13 +458,13 @@
       "parameters": {
         "jsCode": "// Merge the ledger lookup back onto the normalized delivery.\n//\n// The Data Table node emits the ledger row, not our payload, so the\n// normalized fields are pulled back by node reference rather than threaded\n// through the item.\n\nconst norm = $('Normalize and Authorize').first().json;\n\n// With Always Output Data on, a miss produces one empty-ish item. Only a row\n// that actually carries our eventId counts as a hit.\nconst existing = $input.all()\n  .map((i) => i.json)\n  .find((r) => r && r.eventId === norm.eventId) ?? null;\n\nconst prevAttempt = Number(existing?.attempt);\n\nreturn [{\n  json: {\n    ...norm,\n    ledgerFound: existing !== null,\n    ledgerStatus: existing?.status ?? '',\n\n    // Only 'completed' short-circuits. A stale 'claimed' -- a delivery that\n    // died between the backup write and the ledger update -- deliberately\n    // proceeds, because the leads_backup write is keyed on eventId and is\n    // therefore safe to repeat. See ADR-002 'the race window, honestly'.\n    alreadyProcessed: existing?.status === 'completed',\n\n    attempt: (Number.isFinite(prevAttempt) ? prevAttempt : 0) + 1,\n    firstSeenAt: existing?.firstSeenAt || norm.timestamp\n  }\n}];\n"
       },
-      "id": "ledger-state",
+      "id": "06b4ec1e-74ec-4990-a51c-1b4285232da0",
       "name": "Ledger State",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        880,
-        260
+        -448,
+        128
       ]
     },
     {
@@ -296,13 +493,13 @@
         "looseTypeValidation": true,
         "options": {}
       },
-      "id": "if-already-processed",
+      "id": "b4bcd74f-4fa7-4e30-a00b-d236c760f173",
       "name": "Already Completed?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1100,
-        260
+        -224,
+        128
       ]
     },
     {
@@ -330,23 +527,124 @@
             "step": "dedup",
             "status": "ok",
             "attempt": "={{ $json.attempt }}",
-            "error": "",
             "outcome": "duplicate_event"
           },
           "matchingColumns": [],
-          "schema": []
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "correlationId",
+              "displayName": "correlationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "eventId",
+              "displayName": "eventId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contactId",
+              "displayName": "contactId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "opportunityId",
+              "displayName": "opportunityId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "workflow",
+              "displayName": "workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "step",
+              "displayName": "step",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "attempt",
+              "displayName": "attempt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error",
+              "displayName": "error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outcome",
+              "displayName": "outcome",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
         },
         "options": {
           "cellFormat": "RAW"
         }
       },
-      "id": "log-duplicate",
+      "id": "39978f1f-d310-4625-820c-6b5a4c688cab",
       "name": "Log Duplicate Event",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
       "position": [
-        1320,
-        440
+        0,
+        304
       ],
       "notes": "Exactly one row. The correlationId differs from the first delivery's while the eventId matches -- that pairing is the evidence TC-02 is judged on."
     },
@@ -358,30 +656,28 @@
           "responseCode": 200
         }
       },
-      "id": "respond-200-duplicate",
+      "id": "5645d42c-259a-45f3-b5ef-9061512a99f4",
       "name": "Respond 200 already_processed",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        1540,
-        440
+        224,
+        304
       ],
       "notes": "200, not 4xx. A duplicate is our plumbing's artifact, not the sender's error -- a 4xx here makes senders retry harder or page someone."
     },
     {
       "parameters": {
-        "resource": "row",
         "operation": "upsert",
         "dataTableId": {
           "__rl": true,
-          "value": "REPLACE_WITH_DATA_TABLE_ID",
+          "value": "REPLACE_WITH_LEDGER_DATA_TABLE_ID",
           "mode": "id"
         },
         "filters": {
           "conditions": [
             {
               "keyName": "eventId",
-              "condition": "eq",
               "keyValue": "={{ $json.eventId }}"
             }
           ]
@@ -399,17 +695,80 @@
           "matchingColumns": [
             "eventId"
           ],
-          "schema": []
+          "schema": [
+            {
+              "id": "eventId",
+              "displayName": "eventId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "correlationId",
+              "displayName": "correlationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "opportunityId",
+              "displayName": "opportunityId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "firstSeenAt",
+              "displayName": "firstSeenAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "attempt",
+              "displayName": "attempt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
         },
         "options": {}
       },
-      "id": "ledger-claim",
+      "id": "a8f06b38-8069-4b44-a24d-4ccd862372a6",
       "name": "Ledger: Claim",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1,
       "position": [
-        1320,
-        140
+        0,
+        0
       ],
       "notes": "Claim BEFORE the backup write. Writing the ledger only afterwards means a crash in between produces a duplicate; writing it only before means a failure permanently suppresses the retry. This ordering is forced -- see ADR-002."
     },
@@ -430,31 +789,132 @@
           "mappingMode": "defineBelow",
           "value": {
             "timestamp": "={{ $now.toISO() }}",
-            "correlationId": "={{ $('Ledger State').item.json.correlationId }}",
-            "eventId": "={{ $('Ledger State').item.json.eventId }}",
-            "contactId": "={{ $('Ledger State').item.json.contactId }}",
-            "opportunityId": "={{ $('Ledger State').item.json.opportunityId }}",
+            "correlationId": "={{ $('Ledger State').first().json.correlationId }}",
+            "eventId": "={{ $('Ledger State').first().json.eventId }}",
+            "contactId": "={{ $('Ledger State').first().json.contactId }}",
+            "opportunityId": "={{ $('Ledger State').first().json.opportunityId }}",
             "workflow": "ghl-opportunity-to-sheets",
             "step": "claim",
             "status": "ok",
-            "attempt": "={{ $('Ledger State').item.json.attempt }}",
-            "error": "",
+            "attempt": "={{ $('Ledger State').first().json.attempt }}",
             "outcome": "in_progress"
           },
           "matchingColumns": [],
-          "schema": []
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "correlationId",
+              "displayName": "correlationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "eventId",
+              "displayName": "eventId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contactId",
+              "displayName": "contactId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "opportunityId",
+              "displayName": "opportunityId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "workflow",
+              "displayName": "workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "step",
+              "displayName": "step",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "attempt",
+              "displayName": "attempt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error",
+              "displayName": "error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outcome",
+              "displayName": "outcome",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
         },
         "options": {
           "cellFormat": "RAW"
         }
       },
-      "id": "log-claim",
+      "id": "f35e3aaf-3719-454e-9fd3-6cf2d8b72e4a",
       "name": "Log Claim",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
       "position": [
-        1540,
-        140
+        224,
+        0
       ]
     },
     {
@@ -473,22 +933,22 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "timestamp": "={{ $('Ledger State').item.json.timestamp }}",
-            "eventId": "={{ $('Ledger State').item.json.eventId }}",
-            "correlationId": "={{ $('Ledger State').item.json.correlationId }}",
-            "contactId": "={{ $('Ledger State').item.json.contactId }}",
-            "opportunityId": "={{ $('Ledger State').item.json.opportunityId }}",
-            "name": "={{ $('Ledger State').item.json.name }}",
-            "email": "={{ $('Ledger State').item.json.email }}",
-            "phone": "={{ $('Ledger State').item.json.phone }}",
-            "business": "={{ $('Ledger State').item.json.business }}",
-            "service": "={{ $('Ledger State').item.json.service }}",
-            "source": "={{ $('Ledger State').item.json.source }}",
-            "stage": "={{ $('Ledger State').item.json.stage }}",
+            "timestamp": "={{ $('Ledger State').first().json.timestamp }}",
+            "eventId": "={{ $('Ledger State').first().json.eventId }}",
+            "correlationId": "={{ $('Ledger State').first().json.correlationId }}",
+            "contactId": "={{ $('Ledger State').first().json.contactId }}",
+            "opportunityId": "={{ $('Ledger State').first().json.opportunityId }}",
+            "name": "={{ $('Ledger State').first().json.name }}",
+            "email": "={{ $('Ledger State').first().json.email }}",
+            "phone": "={{ $('Ledger State').first().json.phone }}",
+            "business": "={{ $('Ledger State').first().json.business }}",
+            "service": "={{ $('Ledger State').first().json.service }}",
+            "source": "={{ $('Ledger State').first().json.source }}",
+            "stage": "={{ $('Ledger State').first().json.stage }}",
             "appointment": "",
             "lastAction": "backup_written",
             "status": "processed",
-            "attempt": "={{ $('Ledger State').item.json.attempt }}"
+            "attempt": "={{ $('Ledger State').first().json.attempt }}"
           },
           "matchingColumns": [
             "eventId"
@@ -499,13 +959,13 @@
           "cellFormat": "RAW"
         }
       },
-      "id": "sheets-leads-backup",
+      "id": "74df27dc-3a4e-41e6-b8e9-e981d7348a1d",
       "name": "Sheets: leads_backup",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
       "position": [
-        1760,
-        140
+        752,
+        0
       ],
       "onError": "continueErrorOutput",
       "notes": "Append OR UPDATE, matched on eventId. If a previous delivery wrote this row and then died before the ledger reached 'completed', the retry updates that same row instead of adding a second one. This does not make the pipeline exactly-once -- it bounds the one failure mode the ledger's own ordering cannot."
@@ -520,83 +980,247 @@
         },
         "sheetName": {
           "__rl": true,
-          "value": "run_log",
-          "mode": "name"
+          "mode": "name",
+          "value": "run_log"
         },
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
             "timestamp": "={{ $now.toISO() }}",
-            "correlationId": "={{ $('Ledger State').item.json.correlationId }}",
-            "eventId": "={{ $('Ledger State').item.json.eventId }}",
-            "contactId": "={{ $('Ledger State').item.json.contactId }}",
-            "opportunityId": "={{ $('Ledger State').item.json.opportunityId }}",
+            "correlationId": "={{ $('Ledger State').first().json.correlationId }}",
+            "eventId": "={{ $('Ledger State').first().json.eventId }}",
+            "contactId": "={{ $('Ledger State').first().json.contactId }}",
+            "opportunityId": "={{ $('Ledger State').first().json.opportunityId }}",
             "workflow": "ghl-opportunity-to-sheets",
             "step": "leads_backup",
             "status": "ok",
-            "attempt": "={{ $('Ledger State').item.json.attempt }}",
-            "error": "",
+            "attempt": "={{ $('Ledger State').first().json.attempt }}",
             "outcome": "in_progress"
           },
           "matchingColumns": [],
-          "schema": []
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "correlationId",
+              "displayName": "correlationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "eventId",
+              "displayName": "eventId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contactId",
+              "displayName": "contactId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "opportunityId",
+              "displayName": "opportunityId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "workflow",
+              "displayName": "workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "step",
+              "displayName": "step",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "attempt",
+              "displayName": "attempt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error",
+              "displayName": "error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outcome",
+              "displayName": "outcome",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
         },
         "options": {
           "cellFormat": "RAW"
         }
       },
-      "id": "log-backup",
+      "id": "b2169a54-48d8-41d5-aa69-28e0b32fc6c9",
       "name": "Log Backup Written",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
       "position": [
-        1980,
-        140
+        928,
+        0
       ]
     },
     {
       "parameters": {
-        "resource": "row",
         "operation": "upsert",
         "dataTableId": {
           "__rl": true,
-          "value": "REPLACE_WITH_DATA_TABLE_ID",
+          "value": "REPLACE_WITH_LEDGER_DATA_TABLE_ID",
           "mode": "id"
         },
+        "matchType": "anyCondition",
         "filters": {
           "conditions": [
             {
               "keyName": "eventId",
-              "condition": "eq",
-              "keyValue": "={{ $('Ledger State').item.json.eventId }}"
+              "keyValue": "={{ $('Ledger State').first().json.eventId }}"
             }
           ]
         },
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "eventId": "={{ $('Ledger State').item.json.eventId }}",
-            "correlationId": "={{ $('Ledger State').item.json.correlationId }}",
-            "opportunityId": "={{ $('Ledger State').item.json.opportunityId }}",
-            "firstSeenAt": "={{ $('Ledger State').item.json.firstSeenAt }}",
+            "eventId": "={{ $('Ledger State').first().json.eventId }}",
+            "correlationId": "={{ $('Ledger State').first().json.correlationId }}",
+            "opportunityId": "={{ $('Ledger State').first().json.opportunityId }}",
+            "firstSeenAt": "={{ $('Ledger State').first().json.firstSeenAt }}",
             "status": "completed",
-            "attempt": "={{ $('Ledger State').item.json.attempt }}"
+            "attempt": "={{ $('Ledger State').first().json.attempt }}",
+            "nextAttemptAt": "",
+            "lastError": ""
           },
           "matchingColumns": [
             "eventId"
           ],
-          "schema": []
+          "schema": [
+            {
+              "id": "eventId",
+              "displayName": "eventId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "correlationId",
+              "displayName": "correlationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "opportunityId",
+              "displayName": "opportunityId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "firstSeenAt",
+              "displayName": "firstSeenAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "attempt",
+              "displayName": "attempt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
         },
-        "options": {},
-        "matchType": "anyCondition"
+        "options": {}
       },
-      "id": "ledger-complete",
+      "id": "5c316231-e1c7-4fa5-af90-4de66c8b4dc5",
       "name": "Ledger: Complete",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1,
       "position": [
-        2200,
-        140
+        1104,
+        0
       ]
     },
     {
@@ -616,92 +1240,288 @@
           "mappingMode": "defineBelow",
           "value": {
             "timestamp": "={{ $now.toISO() }}",
-            "correlationId": "={{ $('Ledger State').item.json.correlationId }}",
-            "eventId": "={{ $('Ledger State').item.json.eventId }}",
-            "contactId": "={{ $('Ledger State').item.json.contactId }}",
-            "opportunityId": "={{ $('Ledger State').item.json.opportunityId }}",
+            "correlationId": "={{ $('Ledger State').first().json.correlationId }}",
+            "eventId": "={{ $('Ledger State').first().json.eventId }}",
+            "contactId": "={{ $('Ledger State').first().json.contactId }}",
+            "opportunityId": "={{ $('Ledger State').first().json.opportunityId }}",
             "workflow": "ghl-opportunity-to-sheets",
             "step": "complete",
             "status": "ok",
-            "attempt": "={{ $('Ledger State').item.json.attempt }}",
-            "error": "",
+            "attempt": "={{ $('Ledger State').first().json.attempt }}",
             "outcome": "processed"
           },
           "matchingColumns": [],
-          "schema": []
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "correlationId",
+              "displayName": "correlationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "eventId",
+              "displayName": "eventId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contactId",
+              "displayName": "contactId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "opportunityId",
+              "displayName": "opportunityId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "workflow",
+              "displayName": "workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "step",
+              "displayName": "step",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "attempt",
+              "displayName": "attempt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error",
+              "displayName": "error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outcome",
+              "displayName": "outcome",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
         },
         "options": {
           "cellFormat": "RAW"
         }
       },
-      "id": "log-processed",
+      "id": "aba5e0df-8939-4a89-8c18-aa3bb11b0aea",
       "name": "Log Processed",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
       "position": [
-        2420,
-        140
+        1280,
+        0
       ]
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ status: 'processed', eventId: $('Ledger State').item.json.eventId }) }}",
+        "responseBody": "={{ JSON.stringify({ status: 'processed', eventId: $('Ledger State').first().json.eventId }) }}",
         "options": {
           "responseCode": 200
         }
       },
-      "id": "respond-200-processed",
+      "id": "1e197b08-a279-4faf-8be0-80c23a7b1bbc",
       "name": "Respond 200 processed",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        2640,
-        140
+        1616,
+        -96
       ]
     },
     {
       "parameters": {
-        "resource": "row",
         "operation": "upsert",
         "dataTableId": {
           "__rl": true,
-          "value": "REPLACE_WITH_DATA_TABLE_ID",
+          "value": "REPLACE_WITH_LEDGER_DATA_TABLE_ID",
           "mode": "id"
         },
+        "matchType": "anyCondition",
         "filters": {
           "conditions": [
             {
               "keyName": "eventId",
-              "condition": "eq",
-              "keyValue": "={{ $('Ledger State').item.json.eventId }}"
+              "keyValue": "={{ $json.eventId }}"
             }
           ]
         },
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "eventId": "={{ $('Ledger State').item.json.eventId }}",
-            "correlationId": "={{ $('Ledger State').item.json.correlationId }}",
-            "opportunityId": "={{ $('Ledger State').item.json.opportunityId }}",
-            "firstSeenAt": "={{ $('Ledger State').item.json.firstSeenAt }}",
-            "status": "failed",
-            "attempt": "={{ $('Ledger State').item.json.attempt }}"
+            "eventId": "={{ $json.eventId }}",
+            "correlationId": "={{ $json.correlationId }}",
+            "opportunityId": "={{ $json.opportunityId }}",
+            "firstSeenAt": "={{ $json.firstSeenAt }}",
+            "status": "={{ $json.ledgerStatusNext }}",
+            "attempt": "={{ $json.attempt }}",
+            "backupAttempt": "={{ $json.backupAttempt }}",
+            "nextAttemptAt": "={{ $json.nextAttemptAt }}",
+            "lastError": "={{ $json.lastError }}"
           },
           "matchingColumns": [
             "eventId"
           ],
-          "schema": []
+          "schema": [
+            {
+              "id": "eventId",
+              "displayName": "eventId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "correlationId",
+              "displayName": "correlationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "opportunityId",
+              "displayName": "opportunityId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "firstSeenAt",
+              "displayName": "firstSeenAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "attempt",
+              "displayName": "attempt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "backupAttempt",
+              "displayName": "backupAttempt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "nextAttemptAt",
+              "displayName": "nextAttemptAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "lastError",
+              "displayName": "lastError",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
         },
         "options": {}
       },
-      "id": "ledger-fail",
-      "name": "Ledger: Fail",
+      "id": "cc921978-0353-4282-a77e-f222dd8ac1bf",
+      "name": "Ledger: Record Attempt Outcome",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1,
       "position": [
-        1980,
-        360
+        912,
+        304
       ],
       "notes": "Left as 'failed', not deleted. A lost lead is unrecoverable; a duplicate is not. The row is what a reconciliation sweep would key on."
     },
@@ -722,31 +1542,133 @@
           "mappingMode": "defineBelow",
           "value": {
             "timestamp": "={{ $now.toISO() }}",
-            "correlationId": "={{ $('Ledger State').item.json.correlationId }}",
-            "eventId": "={{ $('Ledger State').item.json.eventId }}",
-            "contactId": "={{ $('Ledger State').item.json.contactId }}",
-            "opportunityId": "={{ $('Ledger State').item.json.opportunityId }}",
+            "correlationId": "={{ $('Retry Decision').first().json.correlationId }}",
+            "eventId": "={{ $('Retry Decision').first().json.eventId }}",
+            "contactId": "={{ $('Retry Decision').first().json.contactId }}",
+            "opportunityId": "={{ $('Retry Decision').first().json.opportunityId }}",
             "workflow": "ghl-opportunity-to-sheets",
             "step": "leads_backup",
-            "status": "failed",
-            "attempt": "={{ $('Ledger State').item.json.attempt }}",
-            "error": "backup write failed",
-            "outcome": "failed"
+            "status": "={{ $('Retry Decision').first().json.runLogStatus }}",
+            "attempt": "={{ $('Retry Decision').first().json.backupAttempt }}",
+            "error": "={{ $('Retry Decision').first().json.runLogError }}",
+            "outcome": "={{ $('Retry Decision').first().json.runLogOutcome }}"
           },
           "matchingColumns": [],
-          "schema": []
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "correlationId",
+              "displayName": "correlationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "eventId",
+              "displayName": "eventId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contactId",
+              "displayName": "contactId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "opportunityId",
+              "displayName": "opportunityId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "workflow",
+              "displayName": "workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "step",
+              "displayName": "step",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "attempt",
+              "displayName": "attempt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error",
+              "displayName": "error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outcome",
+              "displayName": "outcome",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
         },
         "options": {
           "cellFormat": "RAW"
         }
       },
-      "id": "log-failed",
-      "name": "Log Failed",
+      "id": "b42d24a0-bafb-4612-afb6-8020a4528ce4",
+      "name": "Log Attempt Outcome",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
       "position": [
-        2200,
-        360
+        1088,
+        304
       ],
       "notes": "Best effort. If Google Sheets is the thing that broke, this write fails too -- which is why the ledger row, not this log, is the durable failure record."
     },
@@ -758,15 +1680,366 @@
           "responseCode": 500
         }
       },
-      "id": "respond-500",
+      "id": "b66cc49d-edee-43dc-86ab-d38113018dc0",
       "name": "Respond 500",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        2420,
-        360
+        1808,
+        432
       ],
       "notes": "500 invites a redelivery, and that is intended: the retry finds a 'claimed' or 'failed' ledger row, re-enters the branch, and the eventId-keyed backup write converges on one row."
+    },
+    {
+      "id": "fault-read-control",
+      "name": "Fault Gate: Read Control",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        400,
+        -160
+      ],
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_CONTROLS_DATA_TABLE_ID",
+          "mode": "id"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "key",
+              "keyValue": "backup_fault"
+            }
+          ]
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "fault-gate",
+      "name": "Fault Gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        576,
+        -160
+      ],
+      "parameters": {
+        "jsCode": "// Operator-only fault injection, for TC-10 / TC-11 / TC-12.\n//\n// The switch is a row in the `leadflow_test_controls` Data Table, which only\n// somebody with n8n access can write. It is deliberately NOT a payload field:\n// letting the public form decide whether the pipeline fails would hand an\n// anonymous submitter both a denial-of-service lever and a way to push chosen\n// leads into the human-review queue.\n//\n// The table is append-only, so flipping the switch means appending a new row\n// rather than editing the old one and the highest id wins. That is not a\n// workaround dressed up as a virtue -- it does cost a growing table -- but it\n// does mean the switch carries its own history, and 'who turned this on, and\n// when' is answerable after the fact.\n//\n// Fail-open by construction. A missing row, an unreadable table, or a value\n// this node does not recognise all mean 'off'. A broken test switch must\n// never be able to take production down.\nconst ctx = $('Ledger State').first().json;\n\nconst rows = $input.all()\n  .map((i) => i.json)\n  .filter((r) => r && r.key === 'backup_fault')\n  .sort((a, b) => Number(b.id ?? 0) - Number(a.id ?? 0));\n\nconst row = rows[0];\n\nconst mode = String(row?.mode ?? 'off').trim().toLowerCase();\nconst scope = String(row?.eventScope ?? '').trim();\n\n// An empty scope arms every delivery. A non-empty one arms only the eventIds\n// containing it, so a switch left on by accident cannot swallow an unrelated\n// lead.\nconst inScope = scope === '' || String(ctx.eventId).includes(scope);\n\nif (mode === 'always' && inScope) {\n  throw new Error('injected downstream failure (leadflow_test_controls.backup_fault=always, scope=\"' + scope + '\")');\n}\n\nreturn [{ json: ctx, pairedItem: { item: 0 } }];\n"
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "retry-decision",
+      "name": "Retry Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        304
+      ],
+      "parameters": {
+        "jsCode": "// Decide what happens after a failed attempt at the durable backup write.\n//\n// This node is the entire retry policy, in one place and on purpose: the four\n// constants below ARE the budget, and nothing else in the workflow gets an\n// opinion about them.\n//\n//   maxAttempts  3     one first attempt plus two retries\n//   base         70s\n//   factor       2     70s then 140s -- exhausted after roughly 3.5 minutes\n//   jitter       additive only, 0-20%\n//   cap          300s\n//\n// The jitter is additive-only deliberately. n8n keeps a Wait of under 65\n// seconds in memory and only persists longer ones to the database, so a\n// subtractive jitter could push the first retry under that line and make\n// durability depend on a coin flip. Every wait scheduled here is at least 70\n// seconds and therefore survives a restart of the instance.\nconst MAX_ATTEMPTS = 3;\nconst BASE_SECONDS = 70;\nconst FACTOR = 2;\nconst CAP_SECONDS = 300;\n\n// $runIndex counts this node's own executions inside the run, so it is the\n// retry counter: 0 the first time the write failed, 1 the second, and so on.\nconst attemptNumber = $runIndex + 1;\nconst exhausted = attemptNumber >= MAX_ATTEMPTS;\n\nconst ctx = $('Ledger State').first().json;\n\nconst raw = $input.first().json ?? {};\nconst errText = String(\n  raw.error?.message ?? raw.error ?? 'unknown downstream failure'\n).slice(0, 300);\n\nlet delaySeconds = 0;\nlet nextAttemptAt = '';\n\nif (!exhausted) {\n  const base = Math.min(CAP_SECONDS, BASE_SECONDS * Math.pow(FACTOR, attemptNumber - 1));\n  delaySeconds = Math.round(base * (1 + Math.random() * 0.2));\n  nextAttemptAt = new Date(Date.now() + delaySeconds * 1000).toISOString();\n}\n\nconst progress = `attempt ${attemptNumber}/${MAX_ATTEMPTS}`;\n\nreturn [{\n  json: {\n    ...ctx,\n    backupAttempt: attemptNumber,\n    maxAttempts: MAX_ATTEMPTS,\n    exhausted,\n\n    // Whether the caller is still waiting. Only the first failure of a\n    // delivery still owes GHL an HTTP response; by the second the connection\n    // has already been answered 202, and answering it twice crashes the run.\n    firstFailure: attemptNumber === 1,\n\n    delaySeconds,\n    nextAttemptAt,\n    lastError: errText,\n    ledgerStatusNext: exhausted ? 'failed' : 'retry_scheduled',\n    runLogStatus: exhausted ? 'failed' : 'retrying',\n    runLogOutcome: exhausted ? 'retry_exhausted' : 'retry_scheduled',\n    runLogError: exhausted\n      ? `backup write failed, ${progress}, retry budget exhausted: ${errText}`\n      : `backup write failed, ${progress}, next attempt at ${nextAttemptAt}: ${errText}`\n  },\n  pairedItem: { item: 0 }\n}];\n"
+      }
+    },
+    {
+      "id": "if-exhausted",
+      "name": "Exhausted?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1264,
+        304
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-exhausted",
+              "leftValue": "={{ $('Retry Decision').first().json.exhausted }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "if-first-failure",
+      "name": "First Failure?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        192
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-first-failure",
+              "leftValue": "={{ $('Retry Decision').first().json.firstFailure }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "if-exhausted-no-response",
+      "name": "Exhausted Without Response?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1616,
+        432
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-exhausted-no-response",
+              "leftValue": "={{ $('Retry Decision').first().json.firstFailure }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "if-response-already-sent",
+      "name": "Response Already Sent?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-response-already-sent",
+              "leftValue": "={{ $('Respond 202 retry_scheduled').isExecuted }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "respond-202",
+      "name": "Respond 202 retry_scheduled",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1616,
+        128
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'retry_scheduled', eventId: $('Retry Decision').first().json.eventId, attempt: $('Retry Decision').first().json.backupAttempt, maxAttempts: $('Retry Decision').first().json.maxAttempts, nextAttemptAt: $('Retry Decision').first().json.nextAttemptAt }) }}",
+        "options": {
+          "responseCode": 202
+        }
+      }
+    },
+    {
+      "id": "wait-before-retry",
+      "name": "Wait Before Retry",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1808,
+        192
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $('Retry Decision').first().json.delaySeconds }}",
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "sheets-needs-human",
+      "name": "Sheets: needs_human",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1440,
+        432
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "needs_human",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "correlationId": "={{ $('Retry Decision').first().json.correlationId }}",
+            "eventId": "={{ $('Retry Decision').first().json.eventId }}",
+            "contactId": "={{ $('Retry Decision').first().json.contactId }}",
+            "opportunityId": "={{ $('Retry Decision').first().json.opportunityId }}",
+            "reason": "=leads_backup write failed on all {{ $('Retry Decision').first().json.maxAttempts }} attempts: {{ $('Retry Decision').first().json.lastError }}",
+            "status": "open",
+            "owner": "unassigned",
+            "lastAction": "retry_exhausted"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "correlationId",
+              "displayName": "correlationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "eventId",
+              "displayName": "eventId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contactId",
+              "displayName": "contactId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "opportunityId",
+              "displayName": "opportunityId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reason",
+              "displayName": "reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "owner",
+              "displayName": "owner",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lastAction",
+              "displayName": "lastAction",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      }
     }
   ],
   "connections": {
@@ -912,17 +2185,6 @@
         ]
       ]
     },
-    "Log Claim": {
-      "main": [
-        [
-          {
-            "node": "Sheets: leads_backup",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Sheets: leads_backup": {
       "main": [
         [
@@ -934,7 +2196,7 @@
         ],
         [
           {
-            "node": "Ledger: Fail",
+            "node": "Retry Decision",
             "type": "main",
             "index": 0
           }
@@ -963,29 +2225,109 @@
         ]
       ]
     },
-    "Log Processed": {
+    "Ledger: Record Attempt Outcome": {
       "main": [
         [
           {
-            "node": "Respond 200 processed",
+            "node": "Log Attempt Outcome",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Ledger: Fail": {
+    "Log Claim": {
       "main": [
         [
           {
-            "node": "Log Failed",
+            "node": "Fault Gate: Read Control",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Log Failed": {
+    "Fault Gate: Read Control": {
+      "main": [
+        [
+          {
+            "node": "Fault Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fault Gate": {
+      "main": [
+        [
+          {
+            "node": "Sheets: leads_backup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Retry Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry Decision": {
+      "main": [
+        [
+          {
+            "node": "Ledger: Record Attempt Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Attempt Outcome": {
+      "main": [
+        [
+          {
+            "node": "Exhausted?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exhausted?": {
+      "main": [
+        [
+          {
+            "node": "Sheets: needs_human",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "First Failure?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: needs_human": {
+      "main": [
+        [
+          {
+            "node": "Exhausted Without Response?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exhausted Without Response?": {
       "main": [
         [
           {
@@ -995,10 +2337,74 @@
           }
         ]
       ]
+    },
+    "First Failure?": {
+      "main": [
+        [
+          {
+            "node": "Respond 202 retry_scheduled",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait Before Retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 202 retry_scheduled": {
+      "main": [
+        [
+          {
+            "node": "Wait Before Retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Before Retry": {
+      "main": [
+        [
+          {
+            "node": "Fault Gate: Read Control",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Processed": {
+      "main": [
+        [
+          {
+            "node": "Response Already Sent?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response Already Sent?": {
+      "main": [
+        null,
+        [
+          {
+            "node": "Respond 200 processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
-    "executionOrder": "v1"
-  },
-  "pinData": {}
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  }
 }

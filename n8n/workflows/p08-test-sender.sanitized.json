@@ -1,0 +1,82 @@
+{
+  "name": "LeadFlow Demo — P08 Test Sender (internal)",
+  "nodes": [
+    {
+      "id": "e94a9c1c-dd32-46a6-a65e-303aaf152978",
+      "name": "Run Test",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "9cdf1845-d30b-44b6-bdfb-736069efc4c1",
+      "name": "Fixture",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// TC-12 -- a complete, valid lead delivered while the downstream backup write\n// fails and keeps failing past the retry budget.\nreturn [{\n  json: {\n    customData: {\n      opportunityId: 'p08-tc12b-persistent',\n      contactId: 'p08-tc12b-contact',\n      name: 'Naledi Okonkwo',\n      email: 'naledi.okonkwo@example.com',\n      phone: '+1 202-555-0158',\n      business: 'Copperline Interiors',\n      service: 'Mortgage',\n      source: 'P08 Internal Test Harness',\n      stage: 'New Lead'\n    }\n  }\n}];\n"
+      }
+    },
+    {
+      "id": "f491d999-6a75-416f-955a-f2005d603217",
+      "name": "POST to Production Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://REPLACE_WITH_N8N_HOST/webhook/REPLACE_WITH_UNGUESSABLE_PATH",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify(Object.assign({}, $json, { customData: Object.assign({}, $json.customData, { sharedSecret: $vars.GHL_WEBHOOK_SHARED_SECRET }) })) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Run Test": {
+      "main": [
+        [
+          {
+            "node": "Fixture",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fixture": {
+      "main": [
+        [
+          {
+            "node": "POST to Production Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  }
+}
