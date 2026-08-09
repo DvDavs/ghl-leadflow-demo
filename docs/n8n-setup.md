@@ -302,7 +302,7 @@ Get-Content payloads\captured.local.json -Raw | ConvertFrom-Json | Out-Null
 | Test | Procedure |
 |---|---|
 | TC-01 | Submit a **new, fictional** lead through the live form. |
-| TC-02 | Redeliver the exact captured payload: `.\scripts\replay-webhook.ps1 -PayloadPath payloads\captured.local.json`. **Do not resubmit the form** — that re-tests TC-02b, and the person-scoped duplicate-opportunity guard would suppress the Opportunity, so no webhook would fire at all. |
+| TC-02 | Redeliver the exact captured payload: `.\scripts\replay-webhook.ps1 -PayloadPath payloads\captured.local.json`. **Do not resubmit the form** — that re-tests TC-02b, and no webhook would fire at all. **Corrected P07:** the reason is now the `Find Opportunity` split in `Form to Opportunity`, which routes a contact with an open opportunity down the re-inquiry branch and never reaches `Create Opportunity`. It is not the duplicate-opportunity guard — that guard has never been exercised. |
 | TC-18 | Same payload, `-Mode NoSecret` and again `-Mode WrongSecret`. |
 
 Evidence required before any of these is marked `PASS` is enumerated in
