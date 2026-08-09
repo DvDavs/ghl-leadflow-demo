@@ -155,6 +155,27 @@ sanitization working:
 Then **Save and Activate**, and copy the **Production** webhook URL. The Test
 URL expires after 120 seconds and will die mid-demo.
 
+### Trap: saving a workflow does not change what production runs
+
+n8n keeps a **draft** version and an **active** version. Editing and saving —
+whether in the UI or through the API's update operation — writes the draft.
+The production webhook keeps serving the previously **published** version
+until you publish.
+
+This cost real confidence during the P06 build. A security fix was applied and
+verified by reading the workflow's nodes back through the API; the read
+returned the *draft*, so the fix looked live. An execution more than an hour
+later still ran the old code, which is the only reason it was caught.
+
+Two rules follow:
+
+- **Verify against the active version, not the workflow object.** Compare
+  `activeVersionId` with the workflow's current `versionId`. If they differ,
+  the change is not in production.
+- **A test proves the version it ran against.** After publishing, any test
+  whose evidence predates the publish covers the old artifact. Re-run enough
+  of the suite to cover what changed.
+
 ### What the workflow does, in order
 
 ```
