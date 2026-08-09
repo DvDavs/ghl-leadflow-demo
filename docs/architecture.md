@@ -48,7 +48,7 @@ boundary is what keeps the design from drifting into two competing CRMs.
 | n8n | **Orchestration** — validate, normalize, dedup, route, retry, log | Business truth |
 | Dedup ledger | **Event identity** — has this `externalLeadId` been processed | Person identity |
 | AI enrichment | **Summarize, extract, classify**, with a confidence score | Any approve or reject decision — see [DECISION-001](decisions/DECISION-001-ai-boundaries.md) |
-| Sheets `leads_backup` | **Durable append-only backup**, event-grained | Being read back into GHL as truth |
+| Sheets `leads_backup` | **Durable append-only backup**, event-grained — **except for re-inquiries, which write no row at all**; see §5 | Being read back into GHL as truth |
 | Sheets `run_log` | **Observability** | Correctness |
 | Sheets `needs_human` | **Human work queue** | Resolving anything itself |
 | Notification channel | Getting a human's attention **once** | Durability — it is best-effort |
@@ -81,7 +81,7 @@ split one concept across two mechanisms.
 |---|---|---|---|
 | **No Response** | Flag: tag `no-response`, fields `contact_attempts`, `last_attempt_at` | GHL, record stays in `Contacting` | Reversible, and the human keeps doing the same thing. As a stage, a lead answering on day 4 must be dragged *backwards* — which corrupts stage-duration metrics and trains reps to distrust the board. After N attempts a workflow moves it to `Follow-up`, and *that* is a real stage change because the cadence genuinely changes. |
 | **Duplicate event** (same `externalLeadId` twice) | **Nothing. Zero CRM artifacts.** One `run_log` row, `outcome=duplicate_event` | Integration layer only | A webhook retry is our plumbing, not a business fact. If redelivery produced a note or a tag, the CRM would become a record of our infrastructure's flakiness. A rep must not be able to tell from the CRM that a webhook was retried. |
-| **Duplicate person** (real re-inquiry) | Business-meaningful. Reuse the Contact. Open opportunity exists → append a note, tag `repeat-inquiry`, pull back to `Contacting` if it had drifted. No open opportunity → create a new one | GHL | A returning lead is a hot buying signal. Suppressing it is the worst failure this system can produce. Still not a stage: it describes *how the deal arrived*, not where it is. |
+| **Duplicate person** (real re-inquiry) | Business-meaningful. Reuse the Contact. Open opportunity exists → append a note, tag `repeat-inquiry`, increment `inquiry_count`, and pull back to `Contacting` **only if it had drifted to `Follow-up`** — from any other stage the stage is left alone. No open opportunity → create a new one | GHL | A returning lead is a hot buying signal. Suppressing it is the worst failure this system can produce. The flag is still not a stage — it describes *how the deal arrived*, not where it is. **The pull-back is the one exception, and it earns it the same way No Response does (P07):** only from `Follow-up`, because only there does the rep's cadence actually change. From every other stage the flag moves nothing, enforced by a `Find Opportunity` gate. |
 | **Requires Human** | Flag + queue: tag `needs-human`, field `human_review_reason`, assigned owner, `needs_human` row, one notification. **While set, automation must not advance the stage** | GHL flag + Sheets queue | Orthogonal to position — it can fire at qualification, at pricing, or at document review. As a stage it would *erase where the lead actually was*. As a flag it is a filterable list, and it composes with the AI boundary. |
 | **Error** | Integration layer by default. **One exception:** failure *after* a partial GHL write tags `integration-error` + `needs-human` | n8n / Sheets, rarely GHL | If we failed before touching GHL there is nothing in GHL to mark, and a "failed lead" record would be a ghost a rep cannot act on. But if the CRM is now *itself* inconsistent, the CRM is the broken thing and a human must see it there. That asymmetry is the whole judgment. |
 | **Retry** | **Never in the CRM, under any condition.** Only `attempt: n` in the log | Integration layer only | Retry is a mechanism, not a state of the lead. The lead does not know it is being retried, and neither should the salesperson. |
@@ -117,6 +117,26 @@ One deliberate asymmetry: **Sheets is event-grained, GHL is person-grained.** On
 person with three inquiries is 1 contact and N opportunities in GHL, but 3 rows
 in backup. That is correct, not a defect.
 
+**Except that it is not true yet, as of P07.** A re-inquiry that lands while an
+opportunity is open creates no second Opportunity, so no webhook fires and no
+backup row is written — one person with three inquiries is currently 1 contact,
+1 opportunity, and **1** row. The compensation lives entirely in GHL (tag, note,
+`inquiry_count`), and the event-grained backup of a re-inquiry is deferred
+because GHL exposes no stable per-submission identity to key it on. See
+[ADR-002](decisions/ADR-002-idempotency-strategy.md) "Consequences to watch",
+item 2.
+
+**And reconciliation does not cover it** — a claim an earlier draft of this
+section got wrong, so it is stated carefully. The TC-17 sweep looks for *an
+Opportunity that has no backup record*. A re-inquiry produces **no Opportunity
+at all**, and the contact's existing Opportunity **does** have a backup row from
+the first inquiry. The sweep would therefore scan straight past it. This is not
+"one more instance of TC-17"; it is a **different and worse gap** — a lost
+business event with no artifact on either side for a sweep to key on. Closing it
+needs either a downstream event (blocked on the missing identity) or a sweep
+that reconciles on something other than opportunity existence — the
+`inquiry_count` and note trail being the obvious candidates.
+
 ## 6. Identity and idempotency
 
 Full reasoning in [ADR-002](decisions/ADR-002-idempotency-strategy.md). Summary:
@@ -138,7 +158,7 @@ What each layer actually protects, on that path:
 |---|---|---|
 | **A person** — same human, two submissions | GHL's contact upsert — **confirmed 2026-08-08**: matches on email OR phone independently, either field alone is sufficient. Concurrent-call behaviour is still **[ASSUMPTION]** | The ledger — it never sees the first write |
 | **A delivery** — one event, webhook sent twice | **The ledger** — zero downstream work on the second | — |
-| **An opportunity** — one event, two opportunities | For a quick duplicate form submission by the same contact (**P05, confirmed configured 2026-08-08**): GHL's native duplicate-opportunity guard — location setting `allowDuplicateOpportunity: false` plus the `Create Opportunity` workflow action's own `Duplicate Opportunity: Disabled` toggle, most likely one check exposed at two configuration surfaces, not two independent layers. This is **not** the `external_lead_id` pre-create query below — that remains confirmed unbuildable | True concurrent races — only tested sequentially, ~1 minute apart (TC-02b), which is outside ADR-002's 1–2s race window. And, because the guard is person-scoped rather than event-scoped, **a genuine re-inquiry that arrives while an opportunity is still open** — ADR-002's compensating branch (note + `inquiry_count` + `repeat-inquiry` tag) is not built in P0, so that case is currently suppressed silently. See [ADR-002](decisions/ADR-002-idempotency-strategy.md) "Consequences to watch" |
+| **An opportunity** — one event, two opportunities | For a quick duplicate form submission by the same contact (**P05, confirmed configured 2026-08-08**): GHL's native duplicate-opportunity guard — location setting `allowDuplicateOpportunity: false` plus the `Create Opportunity` workflow action's own `Duplicate Opportunity: Disabled` toggle, most likely one check exposed at two configuration surfaces, not two independent layers. This is **not** the `external_lead_id` pre-create query below — that remains confirmed unbuildable | True concurrent races — only tested sequentially, ~1 minute apart (TC-02b), which is outside ADR-002's 1–2s race window. **Corrected 2026-08-09 (P07): the guard is *configured* but has never actually been exercised.** TC-02b ran with `Allow Re-entry` off, so its second submission never re-entered the workflow and `Create Opportunity` never ran twice — the observable result is identical either way. The guard is now a backstop behind the `Find Opportunity` split, which reaches `Create Opportunity` only on the `Not Found` path. **A genuine re-inquiry arriving while an opportunity is open in *this* pipeline is no longer suppressed** — the compensating branch (note + `inquiry_count` + `repeat-inquiry` tag + stage pull-back) is built and proven by TC-03. The qualifier is load-bearing: the branch's `Find Opportunity` is pipeline-scoped while the guard is person-scoped, so a contact whose open opportunity sits in another pipeline is still swallowed silently — see [`ghl-setup.md`](ghl-setup.md) "Two scope limits". See [ADR-002](decisions/ADR-002-idempotency-strategy.md) "Consequences to watch" and [`ghl-setup.md`](ghl-setup.md) |
 | **The pre-create query on `external_lead_id`** | Nothing, currently — **confirmed unbuildable 2026-08-08**, `search-opportunity` has no custom-field filter (see [ADR-002](decisions/ADR-002-idempotency-strategy.md)) | The ledger's own check-then-write and the reconciliation sweep remain the only backstop for this axis |
 
 **Downstream delivery identity for this path (P05).** Because the webhook
@@ -312,7 +332,7 @@ release gate, not a guideline.
 
 Documented rather than faked:
 
-1. **Not exactly-once.** Best-effort dedup with a bounded, quantified race window. Of the two mitigations ADR-002 originally proposed, only one exists as originally specified: GHL's contact upsert confirmed to dedupe on email or phone. The opportunity-side custom-field check is confirmed unbuildable against the discovered API. A different, person-scoped opportunity guard exists instead (P05) and covers the quick-duplicate-submission case (TC-02b), but not true concurrency and not a genuine re-inquiry that arrives while an opportunity is still open — see ADR-002 "Consequences to watch".
+1. **Not exactly-once.** Best-effort dedup with a bounded, quantified race window. Of the two mitigations ADR-002 originally proposed, only one exists as originally specified: GHL's contact upsert confirmed to dedupe on email or phone. The opportunity-side custom-field check is confirmed unbuildable against the discovered API. A different, person-scoped opportunity guard exists instead (P05) — **configured but never exercised**, since TC-02b ran with workflow re-entry off and so never reached `Create Opportunity` a second time (P07). The genuine re-inquiry case it used to suppress is now handled by the P07 compensating branch and proven by TC-03; true concurrency remains unaddressed — see ADR-002 "Consequences to watch".
 2. **Cannot detect the absence of leads.** A silently disconnected source needs volume baselining. This is the hardest failure in the class and we do not solve it.
 3. **Single n8n instance.** No queue mode, no durable retry queue.
 4. **Manual dead-letter replay only.** Automated replay with a UI is out of scope.

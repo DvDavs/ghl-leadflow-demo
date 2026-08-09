@@ -25,7 +25,7 @@ stateDiagram-v2
     Appointment --> FollowUp
     Contacted --> FollowUp
     Qualified --> FollowUp
-    FollowUp --> Contacting
+    FollowUp --> Contacting: repeat inquiry - the only automatic pull-back
     Contacting --> Closed
     Contacted --> Closed
     Qualified --> Closed
@@ -34,7 +34,7 @@ stateDiagram-v2
     Closed --> [*]
 
     Contacting --> Contacting: no response - attempts incremented
-    NewLead --> NewLead: repeat inquiry - note appended
+    NewLead --> NewLead: repeat inquiry - tag, note, count only
     Qualified --> Qualified: needs human - automation paused
 ```
 
@@ -46,6 +46,19 @@ the board shows only live work while win-rate reporting still works.
 in `Contacting` — a counter changes, the stage does not. Modelling it as a stage
 would force a lead that answers on day four to be dragged *backwards*, which
 corrupts stage-duration metrics and teaches reps to distrust the board.
+
+**A repeat inquiry is drawn twice, and the difference is the whole point (P07).**
+On every stage but one it is a self-transition — tag, note, `inquiry_count`, no
+movement. The loop is drawn on `New Lead` as a **representative** case, the
+same convention this diagram already uses for `needs human` on `Qualified`; it
+applies identically at `Contacting`, `Contacted`, `Qualified` and
+`Appointment`. From `Follow-up` alone it is a real transition back to
+`Contacting`, because there the cadence genuinely changes: a rep works
+`Contacting` daily and `Follow-up` weekly. That single edge is the **only**
+automatic backward move in
+this design, and it is gated in the built workflow by a `Find Opportunity` step
+filtered to `Follow-up` — precisely so a `Qualified` or `Appointment` deal is
+never dragged back. See [`../ghl-setup.md`](../ghl-setup.md).
 
 ## Where each exceptional condition lives
 
@@ -84,7 +97,6 @@ flowchart TB
   S2 -.->|"after N attempts"| S6
   F1 -.-> S2
   F3 -.-> S4
-  F2 -.-> S1
   F4 -.-> S5
 
   N1 --> L1
@@ -108,7 +120,7 @@ Applying it to the hard cases:
 |---|---|---|
 | **No Response** | Flag | The human keeps doing the same thing — calling. Nothing about their work changes, so nothing on the board should. After N attempts the *cadence* genuinely changes, and that transition to `Follow-up` is a real stage change. |
 | **Duplicate event** | Never in the CRM | A webhook retry is our plumbing. A rep must not be able to tell from the CRM that our infrastructure was flaky. Zero artifacts — not even a note. |
-| **Duplicate person** | Flag, and business-meaningful | A returning lead is a hot buying signal, the opposite of noise. It is amplified, not suppressed. Still not a stage: it describes how the deal *arrived*, not where it *is*. |
+| **Duplicate person** | Flag, and business-meaningful — **plus one gated stage move** | A returning lead is a hot buying signal, the opposite of noise. It is amplified, not suppressed. The flag itself is not a stage: it describes how the deal *arrived*, not where it *is*, which is why it attaches to no stage in the diagram above. **But from `Follow-up` it also triggers a real move back to `Contacting` (P07)** — by the same reasoning as No Response, and only there: a rep works `Contacting` daily and `Follow-up` weekly, so the *cadence* changes and that is what makes a stage change legitimate. From every other stage the flag moves nothing. |
 | **Requires Human** | Flag plus queue | It is orthogonal to position — it can fire at qualification, at pricing, or at document review. As a stage it would erase where the lead actually was, and you would have to guess on return. |
 | **Error** | Integration layer, with one exception | Failing before touching GHL leaves nothing in GHL to mark, and a phantom "failed lead" is not something a rep can act on. But a failure *after* a partial write means the CRM itself is now inconsistent — and then a human must see it there. |
 | **Retry** | Never in the CRM | Retry is a mechanism, not a state. The lead does not know it is being retried, and neither should the salesperson. |

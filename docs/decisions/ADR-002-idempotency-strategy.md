@@ -138,7 +138,11 @@ contact upsert converges on one contact. The business branch follows:
   `Follow-up`.
 - **No open opportunity** → create a new Opportunity in `New Lead`.
 
-Net state: **one contact, N opportunities, N backup rows.**
+Net state, **as designed**: one contact, N opportunities, N backup rows.
+
+**As actually built (P07), the augment arm produces one contact, ONE
+opportunity, and ONE backup row** — the second inquiry adds a tag, a note and an
+increment, and nothing downstream. See "Consequences to watch", item 2.
 
 Stated plainly: *a duplicate event is an infrastructure artifact that must be
 erased; a duplicate person is a business signal that must be amplified.*
@@ -304,6 +308,68 @@ false negatives exactly when it matters.
   created the record, so — consistent with "never key a retry on
   `contactId`" above — it must never be used to decide *whether* to create
   that Opportunity, only to dedupe deliveries of one that already exists.
+- **Resolved, 2026-08-09 (P07): the compensating branch is built and TC-03
+  passes.** `LeadFlow Demo — Form to Opportunity` now begins with a
+  `Find Opportunity` step scoped to `Status = open` on the demo pipeline. Its
+  `Not Found` path is the untouched original — create the Opportunity, then
+  initialise `inquiry_count = 1`. Its `Found` path applies `repeat-inquiry`,
+  appends an internal note carrying the *new* service interest and message,
+  increments `inquiry_count`, and — gated by a second `Find Opportunity`
+  filtered to `Stage = Follow-up` — pulls the opportunity back to `Contacting`.
+  Live evidence in [`../../TEST_CASES.md`](../../TEST_CASES.md) TC-03. Build
+  procedure and the rejected alternatives: [`../ghl-setup.md`](../ghl-setup.md)
+  "The re-inquiry branch (P07)".
+
+  Three things this ADR must now say plainly, because each weakens a claim
+  made above:
+
+  **1. This ADR's central distinction is not fully implementable on this
+  platform.** "A duplicate event is an infrastructure artifact that must be
+  erased; a duplicate person is a business signal that must be amplified"
+  requires telling the two apart. That needs a per-submission identity, and
+  **GHL exposes none** — no form-submission id, no workflow-execution id, no
+  merge tag for either; HighLevel's own feature request for it is open and
+  unshipped. So at the GHL layer an accidental double submission and a genuine
+  re-inquiry are **indistinguishable**, and the branch treats both as
+  re-inquiries. The distinction survives at the *n8n* layer, where
+  `ghl:opportunity-created:<opportunityId>` does identify a delivery. It does
+  not survive at the CRM layer. That is a platform limit, not a design choice,
+  and the direction of the error was chosen deliberately: this ADR already
+  ranks a visible duplicate artifact as recoverable and a swallowed hot lead as
+  not.
+
+  **2. The re-inquiry has no event-grained downstream record.** Because no
+  second Opportunity is created, no webhook fires, and there is no
+  `leads_backup` row. Three downstream identities were considered and two are
+  actively harmful: reusing `ghl:opportunity-created:<opportunityId>` would
+  make the ledger discard the re-inquiry as a redelivery — restoring the exact
+  silence the branch exists to end — and minting an identity from receive time
+  would break dedup of genuine retries. The correct third option, a separate
+  `inquiry.repeated` event, needs a stable key that does not exist; the obvious
+  candidate `ghl:inquiry-repeated:<contactId>:<inquiry_count>` was **not**
+  built, because it depends on a merge tag rendering the post-increment value
+  and that read-after-write ordering is unverified. **`architecture.md` §5's
+  "Sheets is event-grained" is therefore currently false for re-inquiries** —
+  one person with two inquiries is 1 contact, 1 opportunity, and **1** backup
+  row, not 2. Deferred and named, not quietly accepted. **And reconciliation
+  does not rescue it:** the TC-17 sweep looks for an Opportunity with no backup
+  record, but a re-inquiry creates no Opportunity and the existing one already
+  has a row — so the sweep scans past it. This is a *different* gap from TC-17,
+  and a worse one, because neither side holds an artifact to key on. The
+  `inquiry_count` and note trail are the only candidates a future sweep could
+  reconcile against.
+
+  **3. TC-02b never proved what it was credited with.** Enabling
+  `Allow Re-entry` — required for the branch to fire at all — revealed it had
+  been **off**, so TC-02b's second submission never re-entered the workflow and
+  the duplicate-opportunity guard was never exercised. Its attribution has been
+  retracted in place, and its pass demoted to the pre-P07 workflow only — the
+  artifact changed underneath it, so its outcome under the deployed version is
+  **unknown**, not assumed. It must be re-run. The guard is now a backstop behind
+  the `Find Opportunity` split rather than the primary mechanism, since the
+  `Found` path never reaches `Create Opportunity`. **This ADR's opportunity-side
+  story is therefore weaker than P05 recorded:** the guard remains *configured*
+  and unverified-in-effect, and no test has yet exercised it.
 
 ## Related
 
