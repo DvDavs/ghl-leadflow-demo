@@ -34,8 +34,8 @@ GHL-native leg only.
   three Mermaid diagrams under [`docs/diagrams/`](docs/diagrams/).
 - **Decision records.** Integration hierarchy, idempotency strategy, and AI
   boundaries recorded under [`docs/decisions/`](docs/decisions/).
-- **Test matrix.** [`TEST_CASES.md`](TEST_CASES.md) — 19 scenarios, all
-  `BLOCKED`, none passing.
+- **Test matrix.** [`TEST_CASES.md`](TEST_CASES.md) — 19 scenarios. TC-02b is
+  `PASS` with live evidence; the rest are `BLOCKED` or deliberately deferred.
 - **Integration research.**
   [`docs/integration-options.md`](docs/integration-options.md), sourced from
   official documentation only.

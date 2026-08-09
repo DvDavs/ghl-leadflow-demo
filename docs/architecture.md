@@ -3,8 +3,10 @@
 How the lead pipeline is put together, what each part is responsible for, and
 where it is designed to fail safely.
 
-> **Nothing here is built.** This document describes an intended design. No
-> GoHighLevel, n8n, or Google resource exists yet. Where a claim rests on an
+> **Partially built.** The GoHighLevel leg — form → Contact → Opportunity →
+> pipeline — exists and is proven live (P05). The Google Sheet exists with its
+> three tabs. Everything else here is still an intended design: no n8n workflow
+> is published and no outbound webhook is configured. Where a claim rests on an
 > unverified assumption, it is marked **[ASSUMPTION]**.
 
 Throughout, **[DEMO]** marks what ships in the two-day sprint and **[LATER]**
@@ -91,8 +93,8 @@ Diagram: [`diagrams/lead-lifecycle.md`](diagrams/lead-lifecycle.md).
 | Boundary | Trigger | Data crossing | Receiver guarantees |
 |---|---|---|---|
 | Sources → GHL | User submits | Name, email, phone, service interest, source event id if any | GHL persists a Contact and creates an Opportunity. **This happens before n8n sees anything** — see §6.0 |
-| GHL Workflow → n8n | Opportunity created in `New Lead` | `externalLeadId`, `contactId`, `opportunityId`, contact fields, `source`, `submittedAt`, `locationId` | n8n validates the secret and required fields **synchronously**, rejecting with 401 or 422; otherwise acks 200 and continues asynchronously. At-least-once assumed **[ASSUMPTION]** |
-| n8n → dedup ledger | Every accepted delivery | `externalLeadId`, state, timestamps | Returns hit or miss. **Not atomic** — see §6.3 |
+| GHL Workflow → n8n | Opportunity created in `New Lead` | `contactId`, `opportunityId`, contact fields, `source`, `submittedAt`, `locationId`, shared secret. **Not `externalLeadId`** — nothing populates it on this path, so the delivery identity is derived as `ghl:opportunity-created:<opportunityId>`; see §6.0 | n8n validates the secret and required fields **synchronously**, rejecting with 401 or 422; otherwise acks 200 and continues asynchronously. At-least-once assumed **[ASSUMPTION]** |
+| n8n → dedup ledger | Every accepted delivery | `eventId` (`ghl:opportunity-created:<opportunityId>` on this path; `externalLeadId` **[LATER]**, once a source-native submission id exists), state, timestamps | Returns hit or miss. **Not atomic** — see §6.3 |
 | n8n → GHL | After dedup passes | Opportunity update, custom fields, tags, notes, stage moves | Mutations to records GHL already created. n8n creates a Contact itself only on the direct-ingress variant in §6.0 |
 | n8n → AI | After GHL persist | Free text plus form fields | Structured JSON with a confidence score. Bounded timeout, **no side effects** |
 | n8n → `leads_backup` | After GHL persist | Normalized event plus raw payload | At-least-once append; duplicate rows tolerated by design |

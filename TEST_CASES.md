@@ -2,10 +2,12 @@
 
 Behavioural test matrix for the GHL leadflow demo.
 
-**Nothing in this matrix has passed.** No GoHighLevel, n8n, or Google resource
-exists yet, so no scenario is currently executable. This file is the contract
-the implementation will be measured against, written before the implementation
-so the acceptance criteria cannot drift to match whatever happens to work.
+**One scenario has passed: TC-02b (P05)**, with live evidence in its `Actual`
+column. The GoHighLevel leg — form → Contact → Opportunity → pipeline — exists
+and is proven. The Google Sheet exists with its three tabs, but no automation
+writes to it yet, and no n8n webhook is deployed, so every scenario needing
+P-N8N is still blocked. This file was written before the implementation so the
+acceptance criteria cannot drift to match whatever happens to work.
 
 ## Status vocabulary
 
@@ -21,12 +23,12 @@ so the acceptance criteria cannot drift to match whatever happens to work.
 
 ## Prerequisites
 
-Every scenario below is blocked on at least one of these:
+Scenarios are blocked on whichever of these does not yet exist:
 
-- **P-GHL** — a GoHighLevel test location with a pipeline, custom fields, and a lead-capture form.
-- **P-N8N** — a reachable n8n instance with the inbound webhook deployed.
-- **P-SHEET** — a Google Sheet configured as the backup destination.
-- **P-CAL** — a GoHighLevel calendar configured for appointment booking.
+- **P-GHL** — a GoHighLevel test location with a pipeline, custom fields, and a lead-capture form. **Satisfied (P05)** — see [`PROJECT_STATE.md`](PROJECT_STATE.md).
+- **P-N8N** — a reachable n8n instance with the inbound webhook deployed. **Not satisfied** — n8n Cloud is provisioned, no webhook workflow is published.
+- **P-SHEET** — a Google Sheet configured as the backup destination. **Created** — `leads_backup`, `run_log`, and `needs_human` tabs exist with their headers; nothing writes to them yet.
+- **P-CAL** — a GoHighLevel calendar configured for appointment booking. **Not satisfied.**
 
 ## Golden path scope
 
@@ -48,7 +50,7 @@ The reliability scenarios (**TC-09 through TC-12**, plus **TC-17** and
 | ID | Scenario | Input | Expected | Actual | Status |
 |---|---|---|---|---|---|
 | TC-01 | New lead, happy path | Form submission with all required fields, unseen `externalLeadId` | Contact created in GHL; opportunity created in pipeline at `New Lead`; row appended to backup sheet; a `run_log` row per stage boundary, all sharing one `correlationId`, terminating in `outcome=processed` | **GHL leg proven (P05):** form submission → Contact → Opportunity in `New Lead` confirmed live, see TC-02b Actual. Backup-sheet row and `run_log` boundary still require n8n/Sheets — not built yet | BLOCKED (P-N8N, P-SHEET) |
-| TC-02 | Duplicate **delivery** — webhook redelivered | The exact TC-01 webhook payload delivered a second time, same `externalLeadId` | No second sheet row; no second notification; no second AI call; no further GHL mutation; responds 200 as already-processed, not as an error; one `run_log` row with `outcome=duplicate_event` | | BLOCKED (P-GHL, P-N8N, P-SHEET) |
+| TC-02 | Duplicate **delivery** — webhook redelivered | The exact TC-01 webhook payload delivered a second time — same `opportunityId`, therefore the same delivery identity `ghl:opportunity-created:<opportunityId>` per ADR-002. `externalLeadId` is deliberately **not** the key here: it identifies the original submission event and nothing populates it on this path | No second sheet row; no second notification; no second AI call; no further GHL mutation; responds 200 as already-processed, not as an error; one `run_log` row with `outcome=duplicate_event` | | BLOCKED (P-GHL, P-N8N, P-SHEET) |
 | TC-02b | Duplicate **form submission** — same person submits twice | The TC-01 form submitted twice in quick succession, ~1 minute apart (instructed as 5 seconds; actual observed gap) | One contact, by GHL's own upsert. A second Opportunity is expected to be blocked by GHL's native duplicate-opportunity guard (P0, P05: location setting `allowDuplicateOpportunity: false` + the `Create Opportunity` action's own toggle) — **not** by the `external_lead_id` pre-create check, which remains confirmed unbuildable and is not under test here. Sequential only; not evidence of concurrent-safety. See `docs/decisions/ADR-002-idempotency-strategy.md` "Consequences to watch" | Two sequential submissions of the fixture (David Demo, david.demo@example.com, +1 202-555-0101, Mortgage) via the live published form. Live MCP verification: exactly one Contact (upserted by GHL, matched on email+phone, not duplicated); exactly one Opportunity, `status=open`, pipeline `LeadFlow Demo Pipeline` / stage `New Lead`, `source="GHL Demo Form"`, `monetaryValue=0`, name correctly resolved to `David Demo - Mortgage`, `internalSource.source=WORKFLOW_NEW` confirming automated creation. Contact's `service_interest`/`lead_message` custom fields populated on the correct P0 field objects. First pass surfaced and required fixing three build defects (email field not mapped to the standard attribute, form auto-created two duplicate custom fields instead of reusing the P0 set, Opportunity name left as unresolved literal placeholder text) — the broken interim contact/opportunity and the orphaned duplicate fields were deleted before this final run. Confirms the P0 guard holds for a quick sequential repeat of the identical fixture. Sequential only, ~1 minute apart — not evidence of concurrent-safety, and does not exercise the re-inquiry branch (TC-03) | PASS |
 | TC-03 | Duplicate person, different event | New `externalLeadId`, but email and phone match an existing contact | Contact is reused, not duplicated; a new opportunity is created or the existing one is flagged; the lead is marked as a suspected duplicate for human review rather than silently merged. **P0 gap (P05):** while the P0 duplicate-opportunity guard is in effect and an opportunity is already open for the contact, the "new opportunity is created" arm is currently foreclosed — the compensating branch (note + `inquiry_count` + `repeat-inquiry` tag) is not built yet. Not executed in P05; still blocked | | BLOCKED (P-GHL, P-N8N) |
 | TC-04 | Service routing — service A | Valid lead, `service = A` | Opportunity lands in the pipeline path designated for A; assignment and notification match A's rule | | BLOCKED (P-GHL, P-N8N) — deferred until TC-01 is stable |
