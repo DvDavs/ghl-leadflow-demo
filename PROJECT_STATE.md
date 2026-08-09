@@ -10,12 +10,13 @@ can prove it did so.
 
 # Current milestone
 
-**Milestone 3 — GHL access and capability verification.**
+**Milestone 4 — GHL form-to-pipeline build (P05).**
 
-The official HighLevel MCP is connected via OAuth, scoped to one disposable
-trial location. The two highest-priority unknowns carried forward from
-Milestone 2 have been checked against live data. No E2E flow exists yet — this
-milestone closes unknowns, it does not build the pipeline.
+The real GHL tramo — Form → Contact → Opportunity → Pipeline — is built,
+published, and proven live: two sequential submissions of the same fixture
+produce exactly one Contact and one open Opportunity. n8n, Google Sheets, and
+the outbound webhook are still out of scope; this milestone proves the
+GHL-native leg only.
 
 # Completed
 
@@ -79,31 +80,64 @@ milestone closes unknowns, it does not build the pipeline.
   Docker local + ngrok. VPS and any existing server ruled out. See
   [`docs/integration-options.md`](docs/integration-options.md) §3–4.
 
+- **GHL tramo built and proven — P05.** Form → Contact → Opportunity →
+  Pipeline runs live. 7 P0 custom fields, 5 P0 tags, the `LeadFlow Demo
+  Pipeline` (7 exact stages), the `LeadFlow Demo — Service Inquiry` form, and
+  the `LeadFlow Demo — Form to Opportunity` workflow all exist and are
+  published. Custom fields and tags were created via MCP; pipeline, form, and
+  workflow are UI-only — confirmed by exhaustive registry search, no
+  write operation exists for any of the three (see
+  [`docs/ghl-setup.md`](docs/ghl-setup.md) "Registry gaps confirmed live").
+- **TC-02b — PASS.** Two sequential submissions of the same fixture produced
+  exactly one Contact and one open Opportunity, live-verified via MCP. Full
+  evidence in [`TEST_CASES.md`](TEST_CASES.md). The first attempt surfaced
+  three build defects (email not mapped to the standard attribute, the form
+  builder forking two duplicate custom fields instead of reusing the P0 set,
+  an Opportunity name left as unresolved placeholder text) — all three fixed
+  and re-verified; see `docs/ghl-setup.md` "Gotchas".
+- **Opportunity-side P0 guard — a different mechanism than ADR-002 planned.**
+  GHL's native duplicate-opportunity block (location setting +
+  workflow-action toggle) is confirmed configured and, via TC-02b, confirmed
+  to hold for a quick sequential resubmission. It is person-scoped, not
+  event-scoped, so it does not close the gap ADR-002 originally described —
+  see "Known risks" below and ADR-002 "Consequences to watch".
+
 # In Progress
 
-- Nothing. This milestone is complete.
+- Nothing on the GHL leg. Next work moves to Issue #7 (workflow + outbound
+  webhook to n8n) and Issue #8 (n8n Cloud + Sheets).
 
 # Blocked
 
-- **TC-01 and the rest of the E2E build.** No pipeline, form, or n8n workflow
-  exists yet — deliberately out of this milestone's scope.
+- **TC-01 in full, and the rest of the E2E build.** The GHL leg (form →
+  Contact → Opportunity) is proven; the backup-sheet row and `run_log`
+  boundary still need n8n and Google Sheets, neither of which exists yet.
 - **Docker engine is stopped**, so container-level inventory is undetermined.
   Only relevant if the Docker + ngrok fallback is ever needed.
 
 # Known risks carried forward
 
-- **The opportunity-side race mitigation does not exist.** Confirmed, not
-  assumed: `search-opportunity` cannot filter by `external_lead_id`. The
-  reconciliation sweep is now the only backstop for a raced duplicate
-  opportunity. A follow-up design decision (client-side filter, or accept the
-  documented residual risk) is needed before this is fully closed — see
-  ADR-002 "Consequences to watch".
-- **Concurrent-call behaviour of contact upsert is still unverified.** The
-  live probe was sequential by design; it resolved matching semantics, not
-  race behaviour.
-- **The documentation-to-implementation ratio is still the main risk.** One
-  live location and two resolved unknowns are real progress, but no lead has
-  gone through the pipeline end to end yet.
+- **The opportunity-side race mitigation ADR-002 originally wanted still does
+  not exist.** Confirmed: `search-opportunity` cannot filter by
+  `external_lead_id`. A **different** guard now exists instead (P05): GHL's
+  native duplicate-opportunity block (location setting +
+  workflow-action toggle), confirmed live via TC-02b. It is **person-scoped,
+  not event-scoped** — it stops a quick duplicate resubmission, but while an
+  opportunity is open it also currently suppresses a genuine re-inquiry
+  (TC-03's compensating branch — note + `inquiry_count` + `repeat-inquiry`
+  tag — is not built yet). See ADR-002 "Consequences to watch".
+- **Concurrent-call behaviour is still unverified.** Both the P04 contact-upsert
+  probe and the P05 duplicate-opportunity test were strictly sequential (TC-02b
+  ran ~1 minute apart); neither is evidence about true concurrency.
+- **The trial location's owner First/Last Name is still real** (`get-location`
+  `firstName`/`lastName`). Three UI correction requests did not fix it —
+  likely a different settings screen (team/user profile, not Business
+  Profile) than the one already fixed for email/phone/address. Not committed
+  to git and not part of the interview-facing fixture, so not blocking, but
+  still open.
+- **The documentation-to-implementation ratio is improving but is still the
+  main risk.** One full GHL leg now runs and is proven end to end; n8n,
+  Sheets, and the webhook remain entirely unbuilt.
 
 # Environment
 
@@ -131,28 +165,29 @@ Detail in [`docs/environment.md`](docs/environment.md).
 | — | First golden path is a single service type; four-service routing and appointments follow once it is stable |
 | — | GHL integration via official MCP over OAuth, not a Private Integration Token — see [`docs/ghl-setup.md`](docs/ghl-setup.md) |
 | — | n8n hosting: n8n Cloud primary, Docker local + ngrok fallback; no VPS, no existing server |
-| — | Trial location identity sanitized partially by explicit owner decision — name fields fictional, contact fields left as pre-existing real values |
+| — | Trial location identity sanitized partially (P05) — business contact fields (email, phone, address, city, state, postal, country) are now fictional; the owner's `firstName`/`lastName` are still real, unresolved after three correction attempts — see "Known risks" |
+| — | P0 opportunity-duplicate guard: GHL-native, person-scoped (location setting + workflow-action toggle), not the event-scoped `external_lead_id` check ADR-002 wanted — see ADR-002 "Consequences to watch" |
+| — | Downstream delivery identity for the GHL-native path: `ghl:opportunity-created:<opportunityId>`, dedupes webhook redeliveries only, never gates whether to create the Opportunity — see ADR-002 |
 
 # Next 3 actions
 
-1. **Design or accept a mitigation for the opportunity-side race gap.**
-   `search-opportunity` cannot filter by custom field, so ADR-002's planned
-   second independent check does not exist. Decide: client-side fetch-and-filter
-   on `external_lead_id`, or accept the reconciliation sweep as the sole
-   backstop and document the residual risk formally.
-2. **Stand up n8n Cloud and the inbound webhook.** Issue #8, now unblocked on
-   the hosting decision.
-3. **Implement TC-01 end to end, then immediately TC-02**, before adding any
-   further scope. One passing duplicate-suppression test is worth more than any
-   additional design document.
+1. **Configure the workflow's outbound webhook to n8n and stand up n8n Cloud.**
+   Issue #7 (Ready) then Issue #8 — both UI/external-service work the MCP
+   registry cannot touch.
+2. **Build the compensating branch for a genuine re-inquiry** (note +
+   `inquiry_count` + `repeat-inquiry` tag) so the P0 duplicate-opportunity
+   guard stops silently suppressing TC-03's case while an opportunity is open.
+3. **Implement TC-02 (webhook redelivery) and TC-09–TC-12 (validation,
+   retry, failure)** once n8n exists, using the `ghl:opportunity-created:
+   <opportunityId>` delivery identity already documented in ADR-002.
 
 # Demo readiness
 
-**NOT READY.**
+**PARTIAL.**
 
-No end-to-end flow exists yet. GHL access is live and two idempotency unknowns
-are resolved (one favourably, one not), but no n8n or Google resource has been
-created and no test case has passed. What exists is a design, a test contract,
-a publishable repository baseline, and — new this milestone — a verified GHL
-connection with empirical evidence instead of assumptions on two of the
-riskiest design bets.
+The GHL leg is real and proven: a lead can submit the live form twice and the
+CRM ends up in exactly the state ADR-002 predicts — one Contact, one open
+Opportunity, no duplicate. That is the first genuinely executed (not just
+designed) piece of this pipeline. n8n, Google Sheets, the outbound webhook,
+and every reliability scenario (TC-09 onward) remain entirely unbuilt, so the
+demo is not yet end-to-end.

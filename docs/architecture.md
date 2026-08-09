@@ -136,7 +136,20 @@ What each layer actually protects, on that path:
 |---|---|---|
 | **A person** — same human, two submissions | GHL's contact upsert — **confirmed 2026-08-08**: matches on email OR phone independently, either field alone is sufficient. Concurrent-call behaviour is still **[ASSUMPTION]** | The ledger — it never sees the first write |
 | **A delivery** — one event, webhook sent twice | **The ledger** — zero downstream work on the second | — |
-| **An opportunity** — one event, two opportunities | Nothing, currently. The pre-create query on `external_lead_id` is **confirmed unbuildable 2026-08-08** — `search-opportunity` has no custom-field filter (see [ADR-002](decisions/ADR-002-idempotency-strategy.md)). Only the ledger's own check-then-write and the reconciliation sweep remain | The ledger alone, and the race window it does not close |
+| **An opportunity** — one event, two opportunities | For a quick duplicate form submission by the same contact (**P05, confirmed configured 2026-08-08**): GHL's native duplicate-opportunity guard — location setting `allowDuplicateOpportunity: false` plus the `Create Opportunity` workflow action's own `Duplicate Opportunity: Disabled` toggle, most likely one check exposed at two configuration surfaces, not two independent layers. This is **not** the `external_lead_id` pre-create query below — that remains confirmed unbuildable | True concurrent races — only tested sequentially, ~1 minute apart (TC-02b), which is outside ADR-002's 1–2s race window. And, because the guard is person-scoped rather than event-scoped, **a genuine re-inquiry that arrives while an opportunity is still open** — ADR-002's compensating branch (note + `inquiry_count` + `repeat-inquiry` tag) is not built in P0, so that case is currently suppressed silently. See [ADR-002](decisions/ADR-002-idempotency-strategy.md) "Consequences to watch" |
+| **The pre-create query on `external_lead_id`** | Nothing, currently — **confirmed unbuildable 2026-08-08**, `search-opportunity` has no custom-field filter (see [ADR-002](decisions/ADR-002-idempotency-strategy.md)) | The ledger's own check-then-write and the reconciliation sweep remain the only backstop for this axis |
+
+**Downstream delivery identity for this path (P05).** Because the webhook
+payload already carries `opportunityId` once GHL creates the record, above,
+a future n8n ledger dedupes *redeliveries of that webhook* using
+`ghl:opportunity-created:<opportunityId>` — distinct from `externalLeadId`
+in §6.1, which identifies the original submission event and is not yet
+populated by this phase's workflow. `ghl:opportunity-created:<opportunityId>`
+only exists once GHL has already created the Opportunity, so — consistent
+with §6.1's rule below — it must never be used to decide *whether* to
+create one, only to dedupe deliveries of one that already exists. Full
+reasoning: [ADR-002](decisions/ADR-002-idempotency-strategy.md)
+"Consequences to watch".
 
 So the ledger's real job on this path is preventing **duplicate processing**: a
 second backup row, a second AI call, a second notification, a second stage
@@ -297,7 +310,7 @@ release gate, not a guideline.
 
 Documented rather than faked:
 
-1. **Not exactly-once.** Best-effort dedup with a bounded, quantified race window. Of the two mitigations ADR-002 originally proposed, only one exists: GHL's contact upsert confirmed to dedupe on email or phone. The opportunity-side custom-field check is confirmed unbuildable against the discovered API — see ADR-002 "Consequences to watch".
+1. **Not exactly-once.** Best-effort dedup with a bounded, quantified race window. Of the two mitigations ADR-002 originally proposed, only one exists as originally specified: GHL's contact upsert confirmed to dedupe on email or phone. The opportunity-side custom-field check is confirmed unbuildable against the discovered API. A different, person-scoped opportunity guard exists instead (P05) and covers the quick-duplicate-submission case (TC-02b), but not true concurrency and not a genuine re-inquiry that arrives while an opportunity is still open — see ADR-002 "Consequences to watch".
 2. **Cannot detect the absence of leads.** A silently disconnected source needs volume baselining. This is the hardest failure in the class and we do not solve it.
 3. **Single n8n instance.** No queue mode, no durable retry queue.
 4. **Manual dead-letter replay only.** Automated replay with a UI is out of scope.

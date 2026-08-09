@@ -267,6 +267,43 @@ false negatives exactly when it matters.
   duplicate opportunity that slips the ledger. A follow-up decision — either
   fetch-and-filter client-side on `external_lead_id`, or accept the exposure
   as documented residual risk — belongs to a later phase, not P04.
+- **Update, same day (P05): a different opportunity-side guard now exists for
+  P0, but it does not close the gap above — it closes a different one.**
+  The location's `allowDuplicateOpportunity` setting is `false`, confirmed
+  live via `get-location`, and the `Create Opportunity` workflow action
+  additionally carries its own `Duplicate Opportunity: Disabled` toggle. Both
+  are very likely one server-side check exposed at two configuration
+  surfaces, not two independent layers — treat it as one guard, not
+  defense-in-depth. It is **not** the `external_lead_id` pre-create query
+  this ADR wanted; that remains confirmed unbuildable. The guard GHL actually
+  offers is **person-scoped** (one open opportunity per contact), not
+  **event-scoped**. That distinction has a real cost: because the guard
+  cannot tell a low-effort accidental resubmission from a genuine
+  re-inquiry, **the compensating branch this ADR requires for a real
+  re-inquiry — append a note, increment `inquiry_count`, tag
+  `repeat-inquiry` — is not built in P0.** While a contact has an open
+  opportunity, a genuine new inquiry currently produces no second
+  opportunity and no webhook — silently. That is the exact failure this ADR
+  already names as "the worst outcome this system can produce," now reached
+  through a path this ADR had not anticipated. Recorded as a residual for
+  the next phase (build the compensating branch, or scope the guard to a
+  shorter window), not silently accepted — see
+  [`architecture.md`](../architecture.md) §6.0. TC-02b (P05) proves only the
+  intended case — quick, sequential duplicate submission of the identical
+  fixture, ~1 minute apart, well outside this ADR's 1–2s race window and
+  therefore evidence of nothing concurrent — passes. It does not exercise or
+  validate the re-inquiry branch; that remains TC-03, still blocked.
+  **Downstream delivery identity for this path:** the webhook payload
+  already carries `opportunityId` once GHL creates it (§6.0), so the
+  identity a future n8n ledger uses to dedupe *redeliveries of that webhook*
+  is `ghl:opportunity-created:<opportunityId>` — distinct from
+  `externalLeadId` above, which identifies the original submission event and
+  is not yet populated by this phase's workflow (`external_lead_id` exists
+  as a schema field on the Opportunity but nothing writes to it in P0).
+  `ghl:opportunity-created:<opportunityId>` only exists once GHL has already
+  created the record, so — consistent with "never key a retry on
+  `contactId`" above — it must never be used to decide *whether* to create
+  that Opportunity, only to dedupe deliveries of one that already exists.
 
 ## Related
 
