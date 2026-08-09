@@ -1,0 +1,817 @@
+{
+  "name": "LeadFlow Demo — Reconciliation Sweep v2",
+  "nodes": [
+    {
+      "id": "205490c9-734b-425b-9ad1-3136f158f602",
+      "name": "Every 10 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        272
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b7a6c7a8-9942-4652-a9b9-b6626ae5b004",
+      "name": "GHL: Recent Opportunities",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        272
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "https://services.leadconnectorhq.com/opportunities/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "location_id",
+              "value": "REPLACE_WITH_GHL_LOCATION_ID"
+            },
+            {
+              "name": "order",
+              "value": "added_desc"
+            },
+            {
+              "name": "limit",
+              "value": "100"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Version",
+              "value": "2021-07-28"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "notes": "UNVERIFIED: the location query parameter name has never been confirmed against a live 200. Confirm it on the first credentialed run."
+    },
+    {
+      "id": "e3b46480-7dd9-45a2-96ec-8e9ce9ea3157",
+      "name": "Select Candidates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        272
+      ],
+      "parameters": {
+        "jsCode": "// Turn GHL's opportunity page into candidate delivery items.\n//\n// The sweep exists because no retry can rescue a webhook that never arrived:\n// there is nothing to retry. This is the only path that can notice an\n// Opportunity GHL created and n8n never heard about.\n//\n// LOOKBACK is deliberately much wider than the 10-minute schedule. A sweep\n// that only looked back one interval would lose anything falling in a gap\n// where n8n itself was down -- which is exactly when webhooks go missing.\nconst LOOKBACK_MINUTES = 24 * 60;\nconst MAX_CANDIDATES = 100;\n\nconst cutoff = Date.now() - LOOKBACK_MINUTES * 60 * 1000;\n\nconst page = $input.first().json ?? {};\nconst opps = Array.isArray(page.opportunities) ? page.opportunities : [];\n\nconst str = (v) => (v === undefined || v === null) ? '' : String(v).trim();\n\n// The Opportunity name is built by the GHL workflow as '<name> - <service>'.\n// The service interest itself lives on a CONTACT custom field, which this\n// sweep cannot read without a second scope it does not have and did not ask\n// for. Recovering it from the name is a derivation, not the source value, and\n// it is recorded as such -- an honest partial beats either a blank column or\n// a scope nobody justified.\nconst deriveService = (name) => {\n  const parts = str(name).split(' - ');\n  return parts.length > 1 ? parts[parts.length - 1].trim() : '';\n};\n\nconst out = [];\n\nfor (const o of opps) {\n  const createdAt = str(o.createdAt);\n  if (!createdAt || new Date(createdAt).getTime() < cutoff) continue;\n\n  const opportunityId = str(o.id);\n  if (!opportunityId) continue;\n\n  const contact = (o.contact && typeof o.contact === 'object') ? o.contact : {};\n\n  out.push({\n    json: {\n      // Identical derivation to the webhook path. If these two ever disagree\n      // the sweep would recover an event the ledger already completed and\n      // write a second row, so this line is load-bearing.\n      eventId: 'ghl:opportunity-created:' + opportunityId,\n      correlationId: 'n8n:sweep:' + $execution.id,\n      timestamp: createdAt,\n      opportunityId,\n      contactId: str(o.contactId),\n      name: str(contact.name),\n      email: str(contact.email),\n      phone: str(contact.phone),\n      business: '',\n      service: deriveService(o.name),\n      source: str(o.source),\n      stage: str(o.pipelineStageId),\n      appointment: '',\n      lastAction: 'reconciled'\n    }\n  });\n\n  if (out.length >= MAX_CANDIDATES) break;\n}\n\nreturn out;\n"
+      }
+    },
+    {
+      "id": "2ebf97b4-214d-4092-8174-3ac365ac000b",
+      "name": "Sweep Complete",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "99846c76-e998-4065-b939-63986fdccf11",
+      "name": "Ledger: Look Up Candidate",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        896,
+        192
+      ],
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_LEDGER_DATA_TABLE_ID",
+          "mode": "id"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "eventId",
+              "keyValue": "={{ $json.eventId }}"
+            }
+          ]
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "8aef86ef-62b2-4629-ad01-bee4fecce988",
+      "name": "Missing From Ledger?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        192
+      ],
+      "parameters": {
+        "jsCode": "// An opportunity needs recovery only if the ledger has never seen it.\n//\n// A row in ANY state means the webhook did arrive. 'completed' is done, and\n// 'claimed', 'retry_scheduled' and 'failed' all belong to the retry loop,\n// which owns them. The sweep must never race the retry loop for one event.\n//\n// This is also what makes the sweep safe to run twice: the first run writes\n// a completed ledger row, and every run after that sees it and skips.\nconst candidate = $('One Candidate At A Time').first().json;\n\nconst existing = $input.all()\n  .map((i) => i.json)\n  .find((r) => r && r.eventId === candidate.eventId) ?? null;\n\nreturn [{\n  json: {\n    ...candidate,\n    ledgerFound: existing !== null,\n    ledgerStatus: existing?.status ?? '',\n    needsRecovery: existing === null\n  },\n  pairedItem: { item: 0 }\n}];\n"
+      }
+    },
+    {
+      "id": "cfa34fee-e969-491b-87bd-040d893aecf8",
+      "name": "Needs Recovery?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1344,
+        192
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-needs-recovery",
+              "leftValue": "={{ $json.needsRecovery }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "60820546-1b62-440e-b010-4514be20d2a6",
+      "name": "Sheets: leads_backup (recovered)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1568,
+        96
+      ],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "leads_backup",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "eventId"
+          ],
+          "value": {
+            "timestamp": "={{ $('Missing From Ledger?').first().json.timestamp }}",
+            "eventId": "={{ $('Missing From Ledger?').first().json.eventId }}",
+            "correlationId": "={{ $('Missing From Ledger?').first().json.correlationId }}",
+            "contactId": "={{ $('Missing From Ledger?').first().json.contactId }}",
+            "opportunityId": "={{ $('Missing From Ledger?').first().json.opportunityId }}",
+            "name": "={{ $('Missing From Ledger?').first().json.name }}",
+            "email": "={{ $('Missing From Ledger?').first().json.email }}",
+            "phone": "={{ $('Missing From Ledger?').first().json.phone }}",
+            "business": "",
+            "service": "={{ $('Missing From Ledger?').first().json.service }}",
+            "source": "={{ $('Missing From Ledger?').first().json.source }}",
+            "stage": "={{ $('Missing From Ledger?').first().json.stage }}",
+            "appointment": "",
+            "lastAction": "reconciled",
+            "status": "processed",
+            "attempt": "1"
+          },
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "eventId",
+              "displayName": "eventId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "correlationId",
+              "displayName": "correlationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contactId",
+              "displayName": "contactId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "opportunityId",
+              "displayName": "opportunityId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "business",
+              "displayName": "business",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "service",
+              "displayName": "service",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "stage",
+              "displayName": "stage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "appointment",
+              "displayName": "appointment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lastAction",
+              "displayName": "lastAction",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "attempt",
+              "displayName": "attempt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      }
+    },
+    {
+      "id": "bde2db1b-e362-43d9-9016-d83cd9dcfd9d",
+      "name": "Log Reconciled",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1792,
+        96
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "run_log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "correlationId": "={{ $('Missing From Ledger?').first().json.correlationId }}",
+            "eventId": "={{ $('Missing From Ledger?').first().json.eventId }}",
+            "contactId": "={{ $('Missing From Ledger?').first().json.contactId }}",
+            "opportunityId": "={{ $('Missing From Ledger?').first().json.opportunityId }}",
+            "workflow": "reconciliation-sweep",
+            "step": "reconcile",
+            "status": "ok",
+            "attempt": "1",
+            "error": "={{ 'opportunity created at ' + $('Missing From Ledger?').first().json.timestamp + ' had no ledger row; webhook never arrived' }}",
+            "outcome": "reconciled"
+          },
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "correlationId",
+              "displayName": "correlationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "eventId",
+              "displayName": "eventId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contactId",
+              "displayName": "contactId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "opportunityId",
+              "displayName": "opportunityId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "workflow",
+              "displayName": "workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "step",
+              "displayName": "step",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "attempt",
+              "displayName": "attempt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error",
+              "displayName": "error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outcome",
+              "displayName": "outcome",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      }
+    },
+    {
+      "id": "63c68786-ad31-4586-a458-3940d0d7ef2c",
+      "name": "Ledger: Record Recovery",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        2016,
+        272
+      ],
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_LEDGER_DATA_TABLE_ID",
+          "mode": "id"
+        },
+        "matchType": "anyCondition",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "eventId",
+              "keyValue": "={{ $('Missing From Ledger?').first().json.eventId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "eventId"
+          ],
+          "value": {
+            "eventId": "={{ $('Missing From Ledger?').first().json.eventId }}",
+            "correlationId": "={{ $('Missing From Ledger?').first().json.correlationId }}",
+            "opportunityId": "={{ $('Missing From Ledger?').first().json.opportunityId }}",
+            "firstSeenAt": "={{ $('Missing From Ledger?').first().json.timestamp }}",
+            "status": "completed",
+            "attempt": 1,
+            "backupAttempt": 1,
+            "nextAttemptAt": "",
+            "lastError": ""
+          },
+          "schema": [
+            {
+              "id": "eventId",
+              "displayName": "eventId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "correlationId",
+              "displayName": "correlationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "opportunityId",
+              "displayName": "opportunityId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "firstSeenAt",
+              "displayName": "firstSeenAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "attempt",
+              "displayName": "attempt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "backupAttempt",
+              "displayName": "backupAttempt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "nextAttemptAt",
+              "displayName": "nextAttemptAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "lastError",
+              "displayName": "lastError",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d56e5406-36b4-4f7f-a120-ea6287f4a33c",
+      "name": "One Candidate At A Time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        672,
+        272
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "0901eefe-1b98-43fa-a105-84708509821a",
+      "name": "Already Known - Skip",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1568,
+        288
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Every 10 Minutes": {
+      "main": [
+        [
+          {
+            "node": "GHL: Recent Opportunities",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GHL: Recent Opportunities": {
+      "main": [
+        [
+          {
+            "node": "Select Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Candidates": {
+      "main": [
+        [
+          {
+            "node": "One Candidate At A Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ledger: Look Up Candidate": {
+      "main": [
+        [
+          {
+            "node": "Missing From Ledger?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Missing From Ledger?": {
+      "main": [
+        [
+          {
+            "node": "Needs Recovery?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Recovery?": {
+      "main": [
+        [
+          {
+            "node": "Sheets: leads_backup (recovered)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Already Known - Skip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: leads_backup (recovered)": {
+      "main": [
+        [
+          {
+            "node": "Log Reconciled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Reconciled": {
+      "main": [
+        [
+          {
+            "node": "Ledger: Record Recovery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ledger: Record Recovery": {
+      "main": [
+        [
+          {
+            "node": "One Candidate At A Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One Candidate At A Time": {
+      "main": [
+        [
+          {
+            "node": "Sweep Complete",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ledger: Look Up Candidate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Known - Skip": {
+      "main": [
+        [
+          {
+            "node": "One Candidate At A Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  }
+}
