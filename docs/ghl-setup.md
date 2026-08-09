@@ -106,6 +106,49 @@ local CLI state.
   `P04 Capability Probe`-style marker for anything created during capability
   verification).
 
+## Registry gaps confirmed live (P05)
+
+Checked by exhaustive `search_operations` queries, not assumption — none of
+these have a write (or, for the first one, any) operation in the connected
+registry:
+
+- **No `update-location` write operation.** The location's `firstName`,
+  `lastName`, `email`, `phone`, `address`, `city`, `state`, `postalCode`,
+  `country`, and `business.*` fields can be read (`get-location`) but not
+  written via MCP. Full Business Profile sanitization is UI-only.
+- **No `create-pipeline` operation.** Pipelines (and their stages) can only
+  be listed (`get-pipelines`), never created or edited, via MCP.
+- **No form-builder write operation.** Forms can only be listed
+  (`get-forms`); building one is UI-only.
+- **No workflow-builder write operation**, confirming the constraint already
+  recorded on Issue #7. Workflows can only be listed (`get-workflow`).
+
+Custom fields, tags, contacts, and opportunities all have working create /
+read / delete operations and were built via MCP.
+
+## Gotcha: the form builder can silently fork custom fields (P05)
+
+Building a form field in the GHL UI by typing a new field name — instead of
+picking an existing custom field from the dropdown — creates a **new**
+custom field object, even when the label looks identical to one that
+already exists. P05 hit this directly: the form's "Service Interest" and
+"Message" fields were built as new fields (`contact.select_service_interest`,
+`contact.message`) instead of being bound to the P0 fields already created
+via MCP (`contact.service_interest`, `contact.lead_message`). The live
+symptom was a Contact whose `customFields` array held the P0 field values
+under the *wrong* field IDs. Always verify post-build with `get-custom-fields`
+and compare `fieldKey`s against what was actually created, not just the
+field labels shown in the UI.
+
+## Gotcha: opportunity Name templates need real merge tags (P05)
+
+The `Create Opportunity` workflow action's `Name` field must be populated
+using GHL's merge-tag picker, not by typing the placeholder text the picker
+displays (e.g. `[First Name] [Last Name]`) as literal characters. Doing the
+latter creates an Opportunity whose `name` is literally the unresolved
+bracket text — confirmed live via `get-opportunity` on the first P05 attempt,
+fixed by re-inserting the tokens from the picker.
+
 ## Related
 
 - [`integration-options.md`](integration-options.md) §1 — MCP capability
