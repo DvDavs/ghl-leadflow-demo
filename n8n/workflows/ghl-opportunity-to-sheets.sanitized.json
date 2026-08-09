@@ -1,0 +1,753 @@
+{
+  "name": "LeadFlow Demo — GHL Opportunity to Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "REPLACE_WITH_UNGUESSABLE_PATH",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-ingress",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-220, 380],
+      "webhookId": "REPLACE_WITH_UNGUESSABLE_PATH"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Allowlist normalization, secret comparison, and identity minting for one\n// GoHighLevel outbound-webhook delivery.\n//\n// This node performs no writes and must never throw. A malformed or hostile\n// body has to reach the 401 / 422 branches, not crash the execution into a\n// 500 that GHL would then retry.\n\nconst body = $input.first().json.body ?? {};\n\nconst str = (v) => (v === undefined || v === null) ? '' : String(v).trim();\n\n// GHL's free Outbound Webhook action supports no custom headers and no\n// signature, so the shared secret travels in the body. It is compared here,\n// before any write of any kind.\nconst expected = str($vars.GHL_WEBHOOK_SHARED_SECRET);\nconst provided = str(body.sharedSecret);\n\n// Fail closed: an unset variable must never authorize a request.\nconst authorized = expected.length > 0 && provided === expected;\n\nconst opportunityId = str(body.opportunityId);\nconst contactId = str(body.contactId);\nconst email = str(body.email);\n\n// opportunityId is required twice over: for the backup row, and because the\n// entire delivery identity is derived from it.\nconst required = { opportunityId, contactId, email };\nconst missing = Object.keys(required).filter((k) => required[k] === '');\n\nreturn [{\n  json: {\n    authorized,\n    valid: missing.length === 0,\n    missingFields: missing.join(','),\n\n    // Stable per event. Derived, never sent by GHL. Consistent with ADR-002,\n    // this exists only once GHL has already created the Opportunity, so it\n    // dedupes deliveries and must never gate whether the Opportunity is made.\n    eventId: opportunityId ? ('ghl:opportunity-created:' + opportunityId) : '',\n\n    // New per delivery. A redelivery is a new execution, so this changes --\n    // which is exactly what makes a duplicate legible in run_log.\n    correlationId: 'n8n:' + $execution.id,\n\n    timestamp: new Date().toISOString(),\n\n    contactId,\n    opportunityId,\n    name: str(body.name),\n    email,\n    phone: str(body.phone),\n    business: str(body.business),\n    service: str(body.service),\n    source: str(body.source),\n    stage: str(body.stage),\n    appointment: '',\n    lastAction: 'webhook_received'\n  }\n}];\n"
+      },
+      "id": "normalize-authorize",
+      "name": "Normalize and Authorize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [0, 380]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-authorized",
+              "leftValue": "={{ $json.authorized }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "if-authorized",
+      "name": "Authorized?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [220, 380]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "run_log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $json.timestamp }}",
+            "correlationId": "={{ $json.correlationId }}",
+            "eventId": "",
+            "contactId": "",
+            "opportunityId": "",
+            "workflow": "ghl-opportunity-to-sheets",
+            "step": "authorize",
+            "status": "rejected",
+            "attempt": "0",
+            "error": "shared secret missing or incorrect",
+            "outcome": "unauthorized"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "log-unauthorized",
+      "name": "Log Unauthorized",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [440, 620],
+      "notes": "Deliberately logs NO caller-supplied value -- not the eventId, not the ids. An unauthenticated caller must not be able to write attacker-chosen content into the audit log."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'unauthorized' }) }}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "respond-401",
+      "name": "Respond 401",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [660, 620]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-valid",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "if-valid",
+      "name": "Payload Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [440, 320]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "run_log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $json.timestamp }}",
+            "correlationId": "={{ $json.correlationId }}",
+            "eventId": "={{ $json.eventId }}",
+            "contactId": "={{ $json.contactId }}",
+            "opportunityId": "={{ $json.opportunityId }}",
+            "workflow": "ghl-opportunity-to-sheets",
+            "step": "validate",
+            "status": "rejected",
+            "attempt": "0",
+            "error": "=missing required field(s): {{ $json.missingFields }}",
+            "outcome": "invalid_payload"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "log-invalid",
+      "name": "Log Invalid Payload",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [660, 460],
+      "notes": "Logs the NAMES of the missing fields, taken from our own allowlist -- never the caller's values."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'invalid_payload', missing: $json.missingFields }) }}",
+        "options": {
+          "responseCode": 422
+        }
+      },
+      "id": "respond-422",
+      "name": "Respond 422",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [880, 460],
+      "notes": "422 is deterministic and non-retryable: the same payload will always fail the same way, so a retry is pure noise."
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_DATA_TABLE_ID",
+          "mode": "id"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "eventId",
+              "condition": "eq",
+              "keyValue": "={{ $json.eventId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ledger-lookup",
+      "name": "Ledger: Look Up Event",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [660, 260],
+      "alwaysOutputData": true,
+      "notes": "Always Output Data is ON deliberately: a miss must still emit an item, otherwise the whole new-event branch silently stops."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge the ledger lookup back onto the normalized delivery.\n//\n// The Data Table node emits the ledger row, not our payload, so the\n// normalized fields are pulled back by node reference rather than threaded\n// through the item.\n\nconst norm = $('Normalize and Authorize').first().json;\n\n// With Always Output Data on, a miss produces one empty-ish item. Only a row\n// that actually carries our eventId counts as a hit.\nconst existing = $input.all()\n  .map((i) => i.json)\n  .find((r) => r && r.eventId === norm.eventId) ?? null;\n\nconst prevAttempt = Number(existing?.attempt);\n\nreturn [{\n  json: {\n    ...norm,\n    ledgerFound: existing !== null,\n    ledgerStatus: existing?.status ?? '',\n\n    // Only 'completed' short-circuits. A stale 'claimed' -- a delivery that\n    // died between the backup write and the ledger update -- deliberately\n    // proceeds, because the leads_backup write is keyed on eventId and is\n    // therefore safe to repeat. See ADR-002 'the race window, honestly'.\n    alreadyProcessed: existing?.status === 'completed',\n\n    attempt: (Number.isFinite(prevAttempt) ? prevAttempt : 0) + 1,\n    firstSeenAt: existing?.firstSeenAt || norm.timestamp\n  }\n}];\n"
+      },
+      "id": "ledger-state",
+      "name": "Ledger State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 260]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-already",
+              "leftValue": "={{ $json.alreadyProcessed }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "if-already-processed",
+      "name": "Already Completed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1100, 260]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "run_log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $json.timestamp }}",
+            "correlationId": "={{ $json.correlationId }}",
+            "eventId": "={{ $json.eventId }}",
+            "contactId": "={{ $json.contactId }}",
+            "opportunityId": "={{ $json.opportunityId }}",
+            "workflow": "ghl-opportunity-to-sheets",
+            "step": "dedup",
+            "status": "ok",
+            "attempt": "={{ $json.attempt }}",
+            "error": "",
+            "outcome": "duplicate_event"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "log-duplicate",
+      "name": "Log Duplicate Event",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1320, 440],
+      "notes": "Exactly one row. The correlationId differs from the first delivery's while the eventId matches -- that pairing is the evidence TC-02 is judged on."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'already_processed', eventId: $json.eventId }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-200-duplicate",
+      "name": "Respond 200 already_processed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1540, 440],
+      "notes": "200, not 4xx. A duplicate is our plumbing's artifact, not the sender's error -- a 4xx here makes senders retry harder or page someone."
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_DATA_TABLE_ID",
+          "mode": "id"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "eventId",
+              "condition": "eq",
+              "keyValue": "={{ $json.eventId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "eventId": "={{ $json.eventId }}",
+            "correlationId": "={{ $json.correlationId }}",
+            "opportunityId": "={{ $json.opportunityId }}",
+            "firstSeenAt": "={{ $json.firstSeenAt }}",
+            "updatedAt": "={{ $json.timestamp }}",
+            "status": "claimed",
+            "attempt": "={{ $json.attempt }}"
+          },
+          "matchingColumns": ["eventId"],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "ledger-claim",
+      "name": "Ledger: Claim",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [1320, 140],
+      "notes": "Claim BEFORE the backup write. Writing the ledger only afterwards means a crash in between produces a duplicate; writing it only before means a failure permanently suppresses the retry. This ordering is forced -- see ADR-002."
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "run_log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "correlationId": "={{ $('Ledger State').item.json.correlationId }}",
+            "eventId": "={{ $('Ledger State').item.json.eventId }}",
+            "contactId": "={{ $('Ledger State').item.json.contactId }}",
+            "opportunityId": "={{ $('Ledger State').item.json.opportunityId }}",
+            "workflow": "ghl-opportunity-to-sheets",
+            "step": "claim",
+            "status": "ok",
+            "attempt": "={{ $('Ledger State').item.json.attempt }}",
+            "error": "",
+            "outcome": "in_progress"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "log-claim",
+      "name": "Log Claim",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1540, 140]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "leads_backup",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $('Ledger State').item.json.timestamp }}",
+            "eventId": "={{ $('Ledger State').item.json.eventId }}",
+            "correlationId": "={{ $('Ledger State').item.json.correlationId }}",
+            "contactId": "={{ $('Ledger State').item.json.contactId }}",
+            "opportunityId": "={{ $('Ledger State').item.json.opportunityId }}",
+            "name": "={{ $('Ledger State').item.json.name }}",
+            "email": "={{ $('Ledger State').item.json.email }}",
+            "phone": "={{ $('Ledger State').item.json.phone }}",
+            "business": "={{ $('Ledger State').item.json.business }}",
+            "service": "={{ $('Ledger State').item.json.service }}",
+            "source": "={{ $('Ledger State').item.json.source }}",
+            "stage": "={{ $('Ledger State').item.json.stage }}",
+            "appointment": "",
+            "lastAction": "backup_written",
+            "status": "processed",
+            "attempt": "={{ $('Ledger State').item.json.attempt }}"
+          },
+          "matchingColumns": ["eventId"],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "sheets-leads-backup",
+      "name": "Sheets: leads_backup",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1760, 140],
+      "onError": "continueErrorOutput",
+      "notes": "Append OR UPDATE, matched on eventId. If a previous delivery wrote this row and then died before the ledger reached 'completed', the retry updates that same row instead of adding a second one. This does not make the pipeline exactly-once -- it bounds the one failure mode the ledger's own ordering cannot."
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "run_log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "correlationId": "={{ $('Ledger State').item.json.correlationId }}",
+            "eventId": "={{ $('Ledger State').item.json.eventId }}",
+            "contactId": "={{ $('Ledger State').item.json.contactId }}",
+            "opportunityId": "={{ $('Ledger State').item.json.opportunityId }}",
+            "workflow": "ghl-opportunity-to-sheets",
+            "step": "leads_backup",
+            "status": "ok",
+            "attempt": "={{ $('Ledger State').item.json.attempt }}",
+            "error": "",
+            "outcome": "in_progress"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "log-backup",
+      "name": "Log Backup Written",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1980, 140]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_DATA_TABLE_ID",
+          "mode": "id"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "eventId",
+              "condition": "eq",
+              "keyValue": "={{ $('Ledger State').item.json.eventId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "eventId": "={{ $('Ledger State').item.json.eventId }}",
+            "correlationId": "={{ $('Ledger State').item.json.correlationId }}",
+            "opportunityId": "={{ $('Ledger State').item.json.opportunityId }}",
+            "firstSeenAt": "={{ $('Ledger State').item.json.firstSeenAt }}",
+            "updatedAt": "={{ $now.toISO() }}",
+            "status": "completed",
+            "attempt": "={{ $('Ledger State').item.json.attempt }}"
+          },
+          "matchingColumns": ["eventId"],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "ledger-complete",
+      "name": "Ledger: Complete",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [2200, 140]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "run_log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "correlationId": "={{ $('Ledger State').item.json.correlationId }}",
+            "eventId": "={{ $('Ledger State').item.json.eventId }}",
+            "contactId": "={{ $('Ledger State').item.json.contactId }}",
+            "opportunityId": "={{ $('Ledger State').item.json.opportunityId }}",
+            "workflow": "ghl-opportunity-to-sheets",
+            "step": "complete",
+            "status": "ok",
+            "attempt": "={{ $('Ledger State').item.json.attempt }}",
+            "error": "",
+            "outcome": "processed"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "log-processed",
+      "name": "Log Processed",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2420, 140]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'processed', eventId: $('Ledger State').item.json.eventId }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-200-processed",
+      "name": "Respond 200 processed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2640, 140]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_DATA_TABLE_ID",
+          "mode": "id"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "eventId",
+              "condition": "eq",
+              "keyValue": "={{ $('Ledger State').item.json.eventId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "eventId": "={{ $('Ledger State').item.json.eventId }}",
+            "correlationId": "={{ $('Ledger State').item.json.correlationId }}",
+            "opportunityId": "={{ $('Ledger State').item.json.opportunityId }}",
+            "firstSeenAt": "={{ $('Ledger State').item.json.firstSeenAt }}",
+            "updatedAt": "={{ $now.toISO() }}",
+            "status": "failed",
+            "attempt": "={{ $('Ledger State').item.json.attempt }}"
+          },
+          "matchingColumns": ["eventId"],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "ledger-fail",
+      "name": "Ledger: Fail",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [1980, 360],
+      "notes": "Left as 'failed', not deleted. A lost lead is unrecoverable; a duplicate is not. The row is what a reconciliation sweep would key on."
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "run_log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "correlationId": "={{ $('Ledger State').item.json.correlationId }}",
+            "eventId": "={{ $('Ledger State').item.json.eventId }}",
+            "contactId": "={{ $('Ledger State').item.json.contactId }}",
+            "opportunityId": "={{ $('Ledger State').item.json.opportunityId }}",
+            "workflow": "ghl-opportunity-to-sheets",
+            "step": "leads_backup",
+            "status": "failed",
+            "attempt": "={{ $('Ledger State').item.json.attempt }}",
+            "error": "backup write failed",
+            "outcome": "failed"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "log-failed",
+      "name": "Log Failed",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2200, 360],
+      "notes": "Best effort. If Google Sheets is the thing that broke, this write fails too -- which is why the ledger row, not this log, is the durable failure record."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'failed' }) }}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "respond-500",
+      "name": "Respond 500",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2420, 360],
+      "notes": "500 invites a redelivery, and that is intended: the retry finds a 'claimed' or 'failed' ledger row, re-enters the branch, and the eventId-keyed backup write converges on one row."
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Normalize and Authorize", "type": "main", "index": 0 }]]
+    },
+    "Normalize and Authorize": {
+      "main": [[{ "node": "Authorized?", "type": "main", "index": 0 }]]
+    },
+    "Authorized?": {
+      "main": [
+        [{ "node": "Payload Valid?", "type": "main", "index": 0 }],
+        [{ "node": "Log Unauthorized", "type": "main", "index": 0 }]
+      ]
+    },
+    "Log Unauthorized": {
+      "main": [[{ "node": "Respond 401", "type": "main", "index": 0 }]]
+    },
+    "Payload Valid?": {
+      "main": [
+        [{ "node": "Ledger: Look Up Event", "type": "main", "index": 0 }],
+        [{ "node": "Log Invalid Payload", "type": "main", "index": 0 }]
+      ]
+    },
+    "Log Invalid Payload": {
+      "main": [[{ "node": "Respond 422", "type": "main", "index": 0 }]]
+    },
+    "Ledger: Look Up Event": {
+      "main": [[{ "node": "Ledger State", "type": "main", "index": 0 }]]
+    },
+    "Ledger State": {
+      "main": [[{ "node": "Already Completed?", "type": "main", "index": 0 }]]
+    },
+    "Already Completed?": {
+      "main": [
+        [{ "node": "Log Duplicate Event", "type": "main", "index": 0 }],
+        [{ "node": "Ledger: Claim", "type": "main", "index": 0 }]
+      ]
+    },
+    "Log Duplicate Event": {
+      "main": [[{ "node": "Respond 200 already_processed", "type": "main", "index": 0 }]]
+    },
+    "Ledger: Claim": {
+      "main": [[{ "node": "Log Claim", "type": "main", "index": 0 }]]
+    },
+    "Log Claim": {
+      "main": [[{ "node": "Sheets: leads_backup", "type": "main", "index": 0 }]]
+    },
+    "Sheets: leads_backup": {
+      "main": [
+        [{ "node": "Log Backup Written", "type": "main", "index": 0 }],
+        [{ "node": "Ledger: Fail", "type": "main", "index": 0 }]
+      ]
+    },
+    "Log Backup Written": {
+      "main": [[{ "node": "Ledger: Complete", "type": "main", "index": 0 }]]
+    },
+    "Ledger: Complete": {
+      "main": [[{ "node": "Log Processed", "type": "main", "index": 0 }]]
+    },
+    "Log Processed": {
+      "main": [[{ "node": "Respond 200 processed", "type": "main", "index": 0 }]]
+    },
+    "Ledger: Fail": {
+      "main": [[{ "node": "Log Failed", "type": "main", "index": 0 }]]
+    },
+    "Log Failed": {
+      "main": [[{ "node": "Respond 500", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

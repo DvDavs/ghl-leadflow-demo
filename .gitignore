@@ -42,6 +42,13 @@ id_ecdsa*
 docs/environment.local.md
 *.local.md
 
+# --- Captured webhook payloads ----------------------------------------------
+# GHL's free Outbound Webhook action supports no headers, so the shared secret
+# travels INSIDE the body. Every payload captured from a real delivery is
+# therefore secret-bearing. Only the redacted example fixture is versioned.
+payloads/*.local.json
+payloads/captured*.json
+
 # --- Dependencies -----------------------------------------------------------
 node_modules/
 .pnpm-store/
