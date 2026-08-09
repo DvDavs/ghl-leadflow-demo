@@ -10,17 +10,22 @@ can prove it did so.
 
 # Current milestone
 
-**Milestone 5 — outbound webhook and n8n ingress (P06). In progress.**
+**Milestone 5 — outbound webhook, n8n ingress, and Sheets backup (P06).
+Complete.**
 
-The GHL workflow `LeadFlow Demo — Opportunity to n8n` is published and fires.
-The n8n workflow is built, imported, and active, backed by a
-`leadflow_event_ledger` Data Table and a private Google Sheet. A real form
-submission reached n8n and, per the operator, returned `200 processed`.
+The golden path runs end to end and is proven: a lead submits the live form,
+GHL creates the Contact and Opportunity, the outbound webhook delivers to n8n,
+ingress validates a shared secret, a Data Table ledger claims the event, and
+`leads_backup` plus `run_log` are written. Issues #7 and #8 are closed against
+executed acceptance criteria.
 
-**No test case is `PASS` yet.** The GHL half of TC-01 is verified live via
-MCP; the n8n half — execution outcome, the `leads_backup` row, the `run_log`
-boundaries — has not been verified by the agent, only reported. TC-02 and
-TC-18 are blocked on a replayable payload capture.
+Five scenarios pass with live evidence: **TC-01** (happy path), **TC-02**
+(webhook redelivery deduped), **TC-02b** (duplicate form submission, P05),
+**TC-18** (unauthorized rejected, both the absent-secret and wrong-value
+arms), and **TC-19** (formula injection through the public form).
+
+What is *not* built is the reliability half — retry, failure handling,
+reconciliation, and the re-inquiry branch.
 
 # Completed
 
@@ -38,8 +43,24 @@ TC-18 are blocked on a replayable payload capture.
   three Mermaid diagrams under [`docs/diagrams/`](docs/diagrams/).
 - **Decision records.** Integration hierarchy, idempotency strategy, and AI
   boundaries recorded under [`docs/decisions/`](docs/decisions/).
-- **Test matrix.** [`TEST_CASES.md`](TEST_CASES.md) — 19 scenarios. TC-02b is
-  `PASS` with live evidence; the rest are `BLOCKED` or deliberately deferred.
+- **Test matrix.** [`TEST_CASES.md`](TEST_CASES.md) — 20 scenarios. TC-01,
+  TC-02, TC-02b, TC-18 and TC-19 are `PASS` with live evidence; the rest are
+  `BLOCKED` or deliberately deferred. A coverage table records which n8n
+  workflow version each pass was observed against, because a passing test
+  proves the artifact it ran against and nothing later.
+- **n8n ingress and Sheets backup — P06.** Webhook → allowlist normalization →
+  shared-secret check → `leadflow_event_ledger` Data Table claim →
+  `leads_backup` (Append or Update on `eventId`) → ledger `completed`, with
+  deterministic 401 / 422 / 200 / 200-duplicate / 500 responses and
+  append-only `run_log` boundaries. Published and active. Artifacts:
+  [`n8n/workflows/ghl-opportunity-to-sheets.sanitized.json`](n8n/workflows/ghl-opportunity-to-sheets.sanitized.json),
+  [`scripts/replay-webhook.ps1`](scripts/replay-webhook.ps1),
+  [`docs/n8n-setup.md`](docs/n8n-setup.md).
+- **Vendor documentation corrected against observation.** GHL nests declared
+  Custom Data under `customData`, not at the payload root as its own example
+  shows, and the real payload carries `contact_id` at the root although the
+  example omits it. The first error cost six rejected deliveries. Both are
+  written up rather than quietly worked around.
 - **Integration research.**
   [`docs/integration-options.md`](docs/integration-options.md), sourced from
   official documentation only.
@@ -108,30 +129,17 @@ TC-18 are blocked on a replayable payload capture.
 
 # In Progress
 
-- **Issue #7 and Issue #8, both In Progress.** Built and committed:
-  `n8n/workflows/ghl-opportunity-to-sheets.sanitized.json` (23 nodes),
-  `payloads/ghl-opportunity-created.example.json`,
-  `scripts/replay-webhook.ps1`, and [`docs/n8n-setup.md`](docs/n8n-setup.md).
-- **Verifying TC-01.** Seven opportunities now sit in the demo pipeline; the
-  last, `Valeria Cruz - Real Estate` (2026-08-09 05:30Z), is the TC-01
-  candidate and the one whose payload was captured.
+- Nothing. P06 closed; the next sprint item has not been started.
 
 # Blocked
 
-- **TC-02 and TC-18 — on a valid payload capture.** The saved
-  `payloads/captured.local.json` is a hand-copied UI fragment with unbalanced
-  braces (4 open, 5 close), so it is not parseable and not replayable. It *is*
-  confirmed to be the Valeria Cruz delivery, and confirmed to contain no
-  unresolved merge-tag placeholders. The replay script now rejects it rather
-  than sending something that would test nothing.
-- **The n8n MCP server is connected but its tools are not registered in the
-  agent session** — it was added after session start. Until a session restart
-  picks them up, the agent cannot read n8n executions, the live workflow, or
-  the ledger, and every capture has to go through error-prone manual copying.
-- **The committed workflow export may have drifted from the live workflow.**
-  The operator edited the live copy directly to fix the `customData` path. The
-  committed copy has an equivalent fix applied independently and must be
-  reconciled against the live one before #8 closes.
+- **The reliability scenarios — TC-09 through TC-12, and TC-17.** Validation
+  rejection is built and returns 422, but retry, retry-exhaustion, and the
+  reconciliation sweep are not. These are the point of the demo and are the
+  largest remaining gap.
+- **TC-03, the genuine re-inquiry.** Still foreclosed by the person-scoped
+  duplicate-opportunity guard; the compensating branch (note +
+  `inquiry_count` + `repeat-inquiry` tag) is not built.
 - **Docker engine is stopped**, so container-level inventory is undetermined.
   Only relevant if the Docker + ngrok fallback is ever needed.
 
@@ -145,12 +153,23 @@ TC-18 are blocked on a replayable payload capture.
   a hypothesis and a captured payload as evidence — see
   [`docs/n8n-setup.md`](docs/n8n-setup.md). GHL also misspells its own field as
   `pipleline_stage`.
-- **Six diagnostic contacts and opportunities now pollute the demo location**
-  (Marisol Vega, Tobias Lind, Camila Torres, Camila Torres 02, Sofia Bennett,
-  Valeria Cruz). All fictional. All but the Valeria Cruz pair are build
-  artifacts with no `leads_backup` row, and each is an instance of TC-17's
-  scenario — a GHL opportunity whose webhook never landed. Cleanup is pending
+- **Eight diagnostic contacts and opportunities now pollute the demo
+  location** (Marisol Vega, Tobias Lind, Camila Torres, Camila Torres 02,
+  Sofia Bennett, Valeria Cruz, and the `=1+1 Testcase` formula fixture). All
+  fictional. Every one except Valeria Cruz and the formula fixture is a build
+  artifact with **no `leads_backup` row** — which makes each a live instance
+  of TC-17's scenario, a GHL opportunity whose webhook never landed. Useful as
+  reconciliation test data; noise for a demo walkthrough. Cleanup is pending
   an explicit decision; nothing has been deleted.
+- **Saving an n8n workflow is not publishing it.** n8n keeps a draft and an
+  active version, and the API's read returns the draft. A security fix looked
+  applied for over an hour while production served the old version. Always
+  compare `activeVersionId` against the current `versionId` — see
+  [`docs/n8n-setup.md`](docs/n8n-setup.md) §5.
+- **`cellFormat: RAW` must survive every future edit to a Sheets node.**
+  Re-picking a node in the UI can reset its options, and the n8n default is
+  `USER_ENTERED`, which would silently re-open formula injection from the
+  public form.
 - **`Sofia  Bennett - Real Estate`** carries a double space, so the Opportunity
   Name merge template has a spacing defect. Cosmetic, unfixed.
 
@@ -183,7 +202,7 @@ TC-18 are blocked on a replayable payload capture.
 | Toolchain | Git, GitHub CLI, Node, npm, Claude Code present and verified |
 | Docker | Installed, engine stopped |
 | Playwright | Not installed — required later for E2E evidence |
-| n8n | **n8n Cloud live** — workflow active, Variables and Data Tables both confirmed available on the plan. MCP server connected but its tools are not yet registered in the agent session. |
+| n8n | **n8n Cloud live** — workflow published and active on its production webhook URL. Variables and Data Tables both confirmed available on the plan. MCP server connected, tools available. |
 | GoHighLevel | **Connected** — official MCP over OAuth, one trial location. No PIT. Operations require an explicit `locationId` even so. |
 | Google | **Sheets connected to n8n** via a credential-store OAuth2 credential, bound only to the native Sheets node. Sheet is private. |
 | Tunnel | ngrok installed, not running, auth state unconfirmed — only needed if n8n Cloud fallback triggers |
@@ -205,33 +224,45 @@ Detail in [`docs/environment.md`](docs/environment.md).
 | — | Trial location identity sanitized partially (P05) — business contact fields (email, phone, address, city, state, postal, country) are now fictional; the owner's `firstName`/`lastName` are still real, unresolved after three correction attempts — see "Known risks" |
 | — | P0 opportunity-duplicate guard: GHL-native, person-scoped (location setting + workflow-action toggle), not the event-scoped `external_lead_id` check ADR-002 wanted — see ADR-002 "Consequences to watch" |
 | — | Downstream delivery identity for the GHL-native path: `ghl:opportunity-created:<opportunityId>`, dedupes webhook redeliveries only, never gates whether to create the Opportunity — see ADR-002 |
+| — | The GHL→n8n payload contract is **declared** through Custom Data merge tags, not discovered from GHL's implicit body; n8n allowlists only the declared keys — see [`docs/n8n-setup.md`](docs/n8n-setup.md) |
+| — | Ingress protection is an unguessable path plus a shared secret **in the body**, because the free Outbound Webhook action supports no headers and the signed alternative is billable. Weaker than a signature, and documented as such |
+| — | Every Google Sheets write forces `cellFormat: RAW`. The node default, `USER_ENTERED`, turned public form text into live formulas in the durable backup — reachable with no secret at all |
+| — | The ledger is an n8n Data Table, kept separate from `run_log`: `run_log` is a narrative for humans, the ledger is queried state that decides control flow, and a logging failure must not change behaviour |
 
 # Next 3 actions
 
-1. **Restart the agent session so the n8n MCP tools register**, then pull the
-   live workflow and the Valeria Cruz execution directly. That ends the
-   copy-paste capture loop that produced the malformed payload file, and is
-   the prerequisite for verifying TC-01 rather than accepting a report of it.
-2. **Close TC-01, TC-02, and TC-18 with observed evidence** — the n8n
-   execution, exactly one `leads_backup` row for the event, the `run_log`
-   boundaries, and a 401 with zero backup rows. Then reconcile the committed
-   workflow export against the live one before closing #7 and #8.
-3. **Build the compensating branch for a genuine re-inquiry** (note +
-   `inquiry_count` + `repeat-inquiry` tag) so the P0 duplicate-opportunity
-   guard stops silently suppressing TC-03's case while an opportunity is open.
+1. **Build the reliability half — TC-09 through TC-12.** Retry with backoff,
+   retry exhaustion into a terminal failed state, and `needs_human` routing.
+   The `Ledger: Fail` branch and the `needs_human` tab already exist as the
+   landing places; nothing drives them yet. This is the largest gap between
+   what the demo claims and what it proves.
+2. **Build the reconciliation sweep (TC-17).** Eight opportunities with no
+   `leads_backup` row are already sitting in the location as ready-made test
+   data. ADR-002 makes this backstop more load-bearing than originally
+   planned, since the opportunity-side race mitigation does not exist.
+3. **Build the compensating branch for a genuine re-inquiry (TC-03)** — note +
+   `inquiry_count` + `repeat-inquiry` tag — so the person-scoped
+   duplicate-opportunity guard stops silently suppressing a real second
+   inquiry while an opportunity is open.
 
 # Demo readiness
 
 **PARTIAL.**
 
-The GHL leg is real and proven: a lead can submit the live form twice and the
-CRM ends up in exactly the state ADR-002 predicts — one Contact, one open
-Opportunity, no duplicate.
+**The golden path is demonstrable end to end.** A lead submits the live form
+and the pipeline produces one Contact, one Opportunity, one backup row, and a
+`run_log` trail sharing one `correlationId`. Redeliver the same webhook and it
+answers `200 already_processed` with no second row. Send it without the right
+secret and it answers `401` having written nothing but the audit line. Submit
+a name that looks like a spreadsheet formula and it is stored as text.
 
-The second leg now exists too — outbound webhook, n8n ingress, ledger, and
-Sheets backup are built and running, and a real submission reached n8n. But
-**built is not proven.** The n8n-side outcome has been reported, not observed
-by the agent, and `PASS` in this project requires observation. Until the
-`leads_backup` row and the `run_log` boundaries are read directly, the
-end-to-end claim stays unmade. The reliability scenarios (TC-09 onward) remain
-unbuilt.
+That is enough to walk an interviewer through the whole flow and defend each
+decision with an execution record rather than a screenshot.
+
+**What it cannot yet demonstrate** is the half the design says is the point:
+retry, retry exhaustion, human-review routing, and reconciliation. Every
+reliability claim in `architecture.md` §7 beyond validation is still design,
+not evidence — and eight opportunities with no backup row are sitting in the
+CRM as proof that the reconciliation sweep is missing.
+
+All evidence is sequential. Nothing here says anything about concurrency.
