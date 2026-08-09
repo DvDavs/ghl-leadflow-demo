@@ -31,8 +31,11 @@
     WrongSecret inject a deliberately bad value   -> expect 401
 
 .PARAMETER SecretKey
-    Top-level JSON key carrying the shared secret. Matches the Custom Data key
-    configured on the GHL webhook action.
+    Dotted path to the JSON key carrying the shared secret. Defaults to
+    `customData.sharedSecret`, because GoHighLevel nests declared Custom Data
+    under a `customData` object rather than flattening it to the root — the
+    vendor's own documented example shows otherwise, and the difference cost
+    six diagnostic deliveries before it was observed live on 2026-08-09.
 
 .EXAMPLE
     # TC-02 — exact redelivery
@@ -51,7 +54,7 @@ param(
     [ValidateSet('Valid', 'NoSecret', 'WrongSecret')]
     [string] $Mode = 'Valid',
 
-    [string] $SecretKey = 'sharedSecret'
+    [string] $SecretKey = 'customData.sharedSecret'
 )
 
 Set-StrictMode -Version Latest
@@ -85,11 +88,44 @@ function Read-SecretValue {
     }
 }
 
+function Resolve-SecretSlot {
+    <#
+        Walks a dotted path and returns the object that directly owns the
+        final key, plus that key's name. Fails loudly rather than silently
+        creating the parent: a payload missing `customData` is a payload that
+        was captured wrong, and sending it would test nothing.
+    #>
+    param(
+        [Parameter(Mandatory = $true)] $Root,
+        [Parameter(Mandatory = $true)] [string] $Path
+    )
+
+    $parts = $Path -split '\.'
+    $node = $Root
+
+    for ($i = 0; $i -lt $parts.Count - 1; $i++) {
+        $segment = $parts[$i]
+        if ($node.PSObject.Properties.Name -notcontains $segment) {
+            throw "Payload has no '$segment' object, so the shared secret cannot be placed at '$Path'. Re-capture the request body from the n8n execution."
+        }
+        $node = $node.$segment
+    }
+
+    return [pscustomobject]@{ Parent = $node; Leaf = $parts[-1] }
+}
+
 if (-not (Test-Path -LiteralPath $PayloadPath)) {
     throw "Payload file not found: $PayloadPath"
 }
 
-$payload = Get-Content -LiteralPath $PayloadPath -Raw | ConvertFrom-Json
+try {
+    $payload = Get-Content -LiteralPath $PayloadPath -Raw | ConvertFrom-Json
+}
+catch {
+    throw "Payload file is not valid JSON: $PayloadPath. It must be the complete HTTP request body, not a fragment copied out of the n8n UI."
+}
+
+$slot = Resolve-SecretSlot -Root $payload -Path $SecretKey
 
 $url = $null
 $secret = $null
@@ -104,16 +140,16 @@ try {
     switch ($Mode) {
         'Valid' {
             $secret = Read-SecretValue -EnvVarName 'GHL_WEBHOOK_SHARED_SECRET' -Prompt 'shared secret'
-            $payload | Add-Member -NotePropertyName $SecretKey -NotePropertyValue $secret -Force
+            $slot.Parent | Add-Member -NotePropertyName $slot.Leaf -NotePropertyValue $secret -Force
         }
         'WrongSecret' {
             # Deliberately invalid, and deliberately not derived from the real
             # secret, so a partial match can never occur by accident.
-            $payload | Add-Member -NotePropertyName $SecretKey -NotePropertyValue 'not-the-shared-secret' -Force
+            $slot.Parent | Add-Member -NotePropertyName $slot.Leaf -NotePropertyValue 'not-the-shared-secret' -Force
         }
         'NoSecret' {
-            if ($payload.PSObject.Properties.Name -contains $SecretKey) {
-                $payload.PSObject.Properties.Remove($SecretKey)
+            if ($slot.Parent.PSObject.Properties.Name -contains $slot.Leaf) {
+                $slot.Parent.PSObject.Properties.Remove($slot.Leaf)
             }
         }
     }

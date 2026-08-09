@@ -12,18 +12,24 @@
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [-220, 380],
+      "position": [
+        -220,
+        380
+      ],
       "webhookId": "REPLACE_WITH_UNGUESSABLE_PATH"
     },
     {
       "parameters": {
-        "jsCode": "// Allowlist normalization, secret comparison, and identity minting for one\n// GoHighLevel outbound-webhook delivery.\n//\n// This node performs no writes and must never throw. A malformed or hostile\n// body has to reach the 401 / 422 branches, not crash the execution into a\n// 500 that GHL would then retry.\n\nconst body = $input.first().json.body ?? {};\n\nconst str = (v) => (v === undefined || v === null) ? '' : String(v).trim();\n\n// GHL's free Outbound Webhook action supports no custom headers and no\n// signature, so the shared secret travels in the body. It is compared here,\n// before any write of any kind.\nconst expected = str($vars.GHL_WEBHOOK_SHARED_SECRET);\nconst provided = str(body.sharedSecret);\n\n// Fail closed: an unset variable must never authorize a request.\nconst secretConfigured = expected.length > 0;\nconst authorized = secretConfigured && provided === expected;\n\nconst opportunityId = str(body.opportunityId);\nconst contactId = str(body.contactId);\nconst email = str(body.email);\n\n// opportunityId is required twice over: for the backup row, and because the\n// entire delivery identity is derived from it.\nconst required = { opportunityId, contactId, email };\nconst missing = Object.keys(required).filter((k) => required[k] === '');\n\nreturn [{\n  json: {\n    authorized,\n\n    // Distinguishes 'the n8n variable is missing or misnamed' from 'the two\n    // secrets simply differ'. Both produce a 401, and without this they are\n    // indistinguishable from outside. Reports only whether the variable\n    // resolved -- never its value, and never its length.\n    secretConfigured,\n\n    valid: missing.length === 0,\n    missingFields: missing.join(','),\n\n    // Stable per event. Derived, never sent by GHL. Consistent with ADR-002,\n    // this exists only once GHL has already created the Opportunity, so it\n    // dedupes deliveries and must never gate whether the Opportunity is made.\n    eventId: opportunityId ? ('ghl:opportunity-created:' + opportunityId) : '',\n\n    // New per delivery. A redelivery is a new execution, so this changes --\n    // which is exactly what makes a duplicate legible in run_log.\n    correlationId: 'n8n:' + $execution.id,\n\n    timestamp: new Date().toISOString(),\n\n    contactId,\n    opportunityId,\n    name: str(body.name),\n    email,\n    phone: str(body.phone),\n    business: str(body.business),\n    service: str(body.service),\n    source: str(body.source),\n    stage: str(body.stage),\n    appointment: '',\n    lastAction: 'webhook_received'\n  }\n}];\n"
+        "jsCode": "// Allowlist normalization, secret comparison, and identity minting for one\n// GoHighLevel outbound-webhook delivery.\n//\n// This node performs no writes and must never throw. A malformed or hostile\n// body has to reach the 401 / 422 branches, not crash the execution into a\n// 500 that GHL would then retry.\n\nconst body = $input.first().json.body ?? {};\n\n// GHL nests the declared Custom Data under a `customData` object. The\n// vendor doc example shows these keys flattened to the root; that is wrong,\n// and building against it cost six diagnostic deliveries on 2026-08-09.\n// Read the nested object, fall back to the root, so the workflow survives\n// either shape rather than depending on which one the vendor ships.\nconst cd = (body.customData && typeof body.customData === 'object')\n  ? body.customData\n  : body;\n\nconst str = (v) => (v === undefined || v === null) ? '' : String(v).trim();\n\n// GHL's free Outbound Webhook action supports no custom headers and no\n// signature, so the shared secret travels in the body. It is compared here,\n// before any write of any kind.\nconst expected = str($vars.GHL_WEBHOOK_SHARED_SECRET);\nconst provided = str(cd.sharedSecret);\n\n// Fail closed: an unset variable must never authorize a request.\nconst secretConfigured = expected.length > 0;\nconst authorized = secretConfigured && provided === expected;\n\nconst opportunityId = str(cd.opportunityId);\nconst contactId = str(cd.contactId);\nconst email = str(cd.email);\n\n// opportunityId is required twice over: for the backup row, and because the\n// entire delivery identity is derived from it.\nconst required = { opportunityId, contactId, email };\nconst missing = Object.keys(required).filter((k) => required[k] === '');\n\nreturn [{\n  json: {\n    authorized,\n\n    // Distinguishes 'the n8n variable is missing or misnamed' from 'the two\n    // secrets simply differ'. Both produce a 401, and without this they are\n    // indistinguishable from outside. Reports only whether the variable\n    // resolved -- never its value, and never its length.\n    secretConfigured,\n\n    valid: missing.length === 0,\n    missingFields: missing.join(','),\n\n    // Stable per event. Derived, never sent by GHL. Consistent with ADR-002,\n    // this exists only once GHL has already created the Opportunity, so it\n    // dedupes deliveries and must never gate whether the Opportunity is made.\n    eventId: opportunityId ? ('ghl:opportunity-created:' + opportunityId) : '',\n\n    // New per delivery. A redelivery is a new execution, so this changes --\n    // which is exactly what makes a duplicate legible in run_log.\n    correlationId: 'n8n:' + $execution.id,\n\n    timestamp: new Date().toISOString(),\n\n    contactId,\n    opportunityId,\n    name: str(cd.name),\n    email,\n    phone: str(cd.phone),\n    business: str(cd.business),\n    service: str(cd.service),\n    source: str(cd.source),\n    stage: str(cd.stage),\n    appointment: '',\n    lastAction: 'webhook_received'\n  }\n}];\n"
       },
       "id": "normalize-authorize",
       "name": "Normalize and Authorize",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [0, 380]
+      "position": [
+        0,
+        380
+      ]
     },
     {
       "parameters": {
@@ -55,7 +61,10 @@
       "name": "Authorized?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [220, 380]
+      "position": [
+        220,
+        380
+      ]
     },
     {
       "parameters": {
@@ -94,7 +103,10 @@
       "name": "Log Unauthorized",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [440, 620],
+      "position": [
+        440,
+        620
+      ],
       "notes": "Deliberately logs NO caller-supplied value -- not the eventId, not the ids. An unauthenticated caller must not be able to write attacker-chosen content into the audit log."
     },
     {
@@ -109,7 +121,10 @@
       "name": "Respond 401",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [660, 620]
+      "position": [
+        660,
+        620
+      ]
     },
     {
       "parameters": {
@@ -141,7 +156,10 @@
       "name": "Payload Valid?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [440, 320]
+      "position": [
+        440,
+        320
+      ]
     },
     {
       "parameters": {
@@ -180,7 +198,10 @@
       "name": "Log Invalid Payload",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [660, 460],
+      "position": [
+        660,
+        460
+      ],
       "notes": "Logs the NAMES of the missing fields, taken from our own allowlist -- never the caller's values."
     },
     {
@@ -195,7 +216,10 @@
       "name": "Respond 422",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [880, 460],
+      "position": [
+        880,
+        460
+      ],
       "notes": "422 is deterministic and non-retryable: the same payload will always fail the same way, so a retry is pure noise."
     },
     {
@@ -222,7 +246,10 @@
       "name": "Ledger: Look Up Event",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1,
-      "position": [660, 260],
+      "position": [
+        660,
+        260
+      ],
       "alwaysOutputData": true,
       "notes": "Always Output Data is ON deliberately: a miss must still emit an item, otherwise the whole new-event branch silently stops."
     },
@@ -234,7 +261,10 @@
       "name": "Ledger State",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [880, 260]
+      "position": [
+        880,
+        260
+      ]
     },
     {
       "parameters": {
@@ -266,7 +296,10 @@
       "name": "Already Completed?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1100, 260]
+      "position": [
+        1100,
+        260
+      ]
     },
     {
       "parameters": {
@@ -305,7 +338,10 @@
       "name": "Log Duplicate Event",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [1320, 440],
+      "position": [
+        1320,
+        440
+      ],
       "notes": "Exactly one row. The correlationId differs from the first delivery's while the eventId matches -- that pairing is the evidence TC-02 is judged on."
     },
     {
@@ -320,7 +356,10 @@
       "name": "Respond 200 already_processed",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [1540, 440],
+      "position": [
+        1540,
+        440
+      ],
       "notes": "200, not 4xx. A duplicate is our plumbing's artifact, not the sender's error -- a 4xx here makes senders retry harder or page someone."
     },
     {
@@ -352,7 +391,9 @@
             "status": "claimed",
             "attempt": "={{ $json.attempt }}"
           },
-          "matchingColumns": ["eventId"],
+          "matchingColumns": [
+            "eventId"
+          ],
           "schema": []
         },
         "options": {}
@@ -361,7 +402,10 @@
       "name": "Ledger: Claim",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1,
-      "position": [1320, 140],
+      "position": [
+        1320,
+        140
+      ],
       "notes": "Claim BEFORE the backup write. Writing the ledger only afterwards means a crash in between produces a duplicate; writing it only before means a failure permanently suppresses the retry. This ordering is forced -- see ADR-002."
     },
     {
@@ -401,7 +445,10 @@
       "name": "Log Claim",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [1540, 140]
+      "position": [
+        1540,
+        140
+      ]
     },
     {
       "parameters": {
@@ -436,7 +483,9 @@
             "status": "processed",
             "attempt": "={{ $('Ledger State').item.json.attempt }}"
           },
-          "matchingColumns": ["eventId"],
+          "matchingColumns": [
+            "eventId"
+          ],
           "schema": []
         },
         "options": {}
@@ -445,7 +494,10 @@
       "name": "Sheets: leads_backup",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [1760, 140],
+      "position": [
+        1760,
+        140
+      ],
       "onError": "continueErrorOutput",
       "notes": "Append OR UPDATE, matched on eventId. If a previous delivery wrote this row and then died before the ledger reached 'completed', the retry updates that same row instead of adding a second one. This does not make the pipeline exactly-once -- it bounds the one failure mode the ledger's own ordering cannot."
     },
@@ -486,7 +538,10 @@
       "name": "Log Backup Written",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [1980, 140]
+      "position": [
+        1980,
+        140
+      ]
     },
     {
       "parameters": {
@@ -517,7 +572,9 @@
             "status": "completed",
             "attempt": "={{ $('Ledger State').item.json.attempt }}"
           },
-          "matchingColumns": ["eventId"],
+          "matchingColumns": [
+            "eventId"
+          ],
           "schema": []
         },
         "options": {}
@@ -526,7 +583,10 @@
       "name": "Ledger: Complete",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1,
-      "position": [2200, 140]
+      "position": [
+        2200,
+        140
+      ]
     },
     {
       "parameters": {
@@ -565,7 +625,10 @@
       "name": "Log Processed",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [2420, 140]
+      "position": [
+        2420,
+        140
+      ]
     },
     {
       "parameters": {
@@ -579,7 +642,10 @@
       "name": "Respond 200 processed",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [2640, 140]
+      "position": [
+        2640,
+        140
+      ]
     },
     {
       "parameters": {
@@ -610,7 +676,9 @@
             "status": "failed",
             "attempt": "={{ $('Ledger State').item.json.attempt }}"
           },
-          "matchingColumns": ["eventId"],
+          "matchingColumns": [
+            "eventId"
+          ],
           "schema": []
         },
         "options": {}
@@ -619,7 +687,10 @@
       "name": "Ledger: Fail",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1,
-      "position": [1980, 360],
+      "position": [
+        1980,
+        360
+      ],
       "notes": "Left as 'failed', not deleted. A lost lead is unrecoverable; a duplicate is not. The row is what a reconciliation sweep would key on."
     },
     {
@@ -659,7 +730,10 @@
       "name": "Log Failed",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [2200, 360],
+      "position": [
+        2200,
+        360
+      ],
       "notes": "Best effort. If Google Sheets is the thing that broke, this write fails too -- which is why the ledger row, not this log, is the durable failure record."
     },
     {
@@ -674,76 +748,239 @@
       "name": "Respond 500",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [2420, 360],
+      "position": [
+        2420,
+        360
+      ],
       "notes": "500 invites a redelivery, and that is intended: the retry finds a 'claimed' or 'failed' ledger row, re-enters the branch, and the eventId-keyed backup write converges on one row."
     }
   ],
   "connections": {
     "Webhook": {
-      "main": [[{ "node": "Normalize and Authorize", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Normalize and Authorize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Normalize and Authorize": {
-      "main": [[{ "node": "Authorized?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Authorized?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Authorized?": {
       "main": [
-        [{ "node": "Payload Valid?", "type": "main", "index": 0 }],
-        [{ "node": "Log Unauthorized", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Payload Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Log Unauthorized": {
-      "main": [[{ "node": "Respond 401", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Respond 401",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Payload Valid?": {
       "main": [
-        [{ "node": "Ledger: Look Up Event", "type": "main", "index": 0 }],
-        [{ "node": "Log Invalid Payload", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Ledger: Look Up Event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Invalid Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Log Invalid Payload": {
-      "main": [[{ "node": "Respond 422", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Respond 422",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Ledger: Look Up Event": {
-      "main": [[{ "node": "Ledger State", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Ledger State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Ledger State": {
-      "main": [[{ "node": "Already Completed?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Already Completed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Already Completed?": {
       "main": [
-        [{ "node": "Log Duplicate Event", "type": "main", "index": 0 }],
-        [{ "node": "Ledger: Claim", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Log Duplicate Event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ledger: Claim",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Log Duplicate Event": {
-      "main": [[{ "node": "Respond 200 already_processed", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Respond 200 already_processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Ledger: Claim": {
-      "main": [[{ "node": "Log Claim", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Log Claim",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Log Claim": {
-      "main": [[{ "node": "Sheets: leads_backup", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Sheets: leads_backup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Sheets: leads_backup": {
       "main": [
-        [{ "node": "Log Backup Written", "type": "main", "index": 0 }],
-        [{ "node": "Ledger: Fail", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Log Backup Written",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ledger: Fail",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Log Backup Written": {
-      "main": [[{ "node": "Ledger: Complete", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Ledger: Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Ledger: Complete": {
-      "main": [[{ "node": "Log Processed", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Log Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Log Processed": {
-      "main": [[{ "node": "Respond 200 processed", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Respond 200 processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Ledger: Fail": {
-      "main": [[{ "node": "Log Failed", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Log Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Log Failed": {
-      "main": [[{ "node": "Respond 500", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Respond 500",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {

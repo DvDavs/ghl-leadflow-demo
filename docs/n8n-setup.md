@@ -11,18 +11,42 @@ value is a placeholder you fill in through the UI.
 GoHighLevel's **free** `Webhook (Outbound)` workflow action sends a flat,
 snake_case body. Its documented example shows contact fields, a nested
 `location` object, and — when the workflow is triggered by an opportunity
-event — a group of opportunity fields. **It does not document a contact-id
-field at all**, and the only bare `id` in the example sits inside the
-opportunity group, unlabelled.
+event — a group of opportunity fields whose only bare `id` is unlabelled.
 
-Building against that shape would mean building against an undocumented
-schema we cannot version. So we do the opposite: **the payload contract is
-declared through Custom Data**, and n8n reads *only* the keys we declared.
-GHL's native fields still arrive; the workflow ignores every one of them.
+Building against that shape would mean building against a schema we cannot
+version. So we do the opposite: **the payload contract is declared through
+Custom Data**, and n8n reads *only* the keys we declared. GHL's native fields
+still arrive; the workflow ignores every one of them.
 
 That choice buys three things: the contract is explicit and reviewable, the
 n8n allowlist has something stable to allowlist, and a schema change on GHL's
 side cannot silently alter what we persist.
+
+### Two corrections the vendor documentation got wrong
+
+Both were established by reading a real captured delivery on 2026-08-09, not
+by reasoning:
+
+1. **Custom Data arrives nested under a `customData` object.** The vendor's
+   documented example shows Custom Data keys flattened to the root alongside
+   the native fields. They are not. Reading them from the root produced a
+   permanent 401 and cost six diagnostic deliveries before the real body was
+   inspected. The normalizer now reads `body.customData` and falls back to the
+   root, so it survives either shape rather than betting on one.
+2. **`contact_id` *does* exist at the root of the real payload**, despite
+   being absent from the documented example. We still do not read it — the
+   declared `customData.contactId` is the contract — but the claim that GHL
+   sends no contact id is false, and any design resting on that premise is
+   resting on nothing.
+
+The general lesson, and the reason this section exists: **vendor documentation
+is a hypothesis, and a captured payload is evidence.** Where they disagree,
+the payload wins.
+
+> **Gotcha: GHL misspells its own field.** The real payload carries
+> `pipleline_stage`, not `pipeline_stage`. Anything reading GHL's native
+> fields directly must reproduce the typo. This is a second, independent
+> reason to read only the declared `customData` keys.
 
 ## Constraint that shapes everything downstream
 
@@ -194,6 +218,11 @@ manually created or reconciled Opportunity fires the webhook too.
 | `source` | opportunity source — picker |
 | `stage` | pipeline stage — picker |
 
+These eleven keys arrive **nested under `customData`** in the delivered body,
+not at the root — see "Two corrections the vendor documentation got wrong"
+above. The replay script's `-SecretKey` therefore defaults to the dotted path
+`customData.sharedSecret`.
+
 > **Gotcha, already paid for once in P05.** Merge values must be inserted from
 > GHL's **merge-field picker**, never typed as the placeholder text the picker
 > displays. Typing `[Opportunity Id]` by hand produces a payload whose value is
@@ -211,6 +240,17 @@ secret to a host we do not control.
 
 To keep a captured payload for replay, save it as `payloads/captured.local.json`
 — already gitignored — and redact the secret before it goes anywhere else.
+
+**It must be the complete HTTP request body and valid JSON on its own.** A
+fragment hand-copied out of the n8n UI — starting at `"body": {`, or with
+unbalanced braces — is not replayable, and the replay script rejects it rather
+than sending something that would test nothing. Prefer downloading the item
+JSON over selecting text in the browser, or read the execution through the n8n
+API. Verify before relying on it:
+
+```powershell
+Get-Content payloads\captured.local.json -Raw | ConvertFrom-Json | Out-Null
+```
 
 ## 7. Tests
 
