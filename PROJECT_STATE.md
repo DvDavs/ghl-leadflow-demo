@@ -10,28 +10,34 @@ can prove it did so.
 
 # Current milestone
 
-**Milestone 6 — idempotency and the genuine re-inquiry (P07). Work complete
-and evidenced; Issue #9's bookkeeping closes as this prompt ends.**
+**Milestone 7 — failure, retry and human handoff (P08). The retry half is
+built, published and evidenced. Reconciliation is built and cannot run yet.**
 
-The golden path runs end to end and is proven, and a returning lead is no
-longer swallowed. A second inquiry from a person who already has an open
-opportunity now produces a `repeat-inquiry` tag, an internal note carrying the
-*new* intent, an incremented `inquiry_count`, and a stage pull-back from
-`Follow-up` to `Contacting` — instead of silence. Issues #7 and #8 are closed
-against executed acceptance criteria; **#9 is still open and In Progress at the
-time of writing**, and closes as this prompt ends — see "Sprint board" for why
-that is stated as pending rather than done.
+A downstream failure no longer loses the lead and no longer lies to the sender.
+The backup write is answered `202 retry_scheduled` and retried on a bounded
+ladder held by a database-persisted wait; a transient failure that clears
+converges on exactly one backup row; a failure that does not clear ends in a
+ledger `failed`, a `needs_human` row, and a `run_log` outcome that cannot be
+confused with a validation rejection. Validation also stopped rejecting
+phone-only leads.
 
-Five scenarios pass against the deployed artifacts, and a sixth passed against
-one that no longer exists: **TC-01** (happy path), **TC-02**
-(webhook redelivery deduped), **TC-02b** (duplicate form submission, P05 —
-**demoted in P07**: its attribution was retracted and its pass covers the
-pre-P07 GHL workflow only, so it needs re-running), **TC-03** (genuine
-re-inquiry), **TC-18** (unauthorized rejected, both the absent-secret and
-wrong-value arms), and **TC-19** (formula injection through the public form).
+**Nine scenarios pass against the deployed artifacts**: **TC-01**, **TC-02**,
+**TC-03**, **TC-09** (unreachable lead refused before any business write),
+**TC-10** (transient failure detected, persisted, retry scheduled), **TC-11**
+(retry converges on exactly one record), **TC-12** (budget exhausts into a
+visible terminal state), **TC-18** and **TC-19**. A tenth, **TC-02b**, still
+covers an artifact that no longer exists.
 
-What is *not* built is the reliability half — retry, failure handling, and
-reconciliation.
+**P08 re-ran four earlier rows rather than assuming them.** The rebuild spliced
+a retry loop into the happy path, rewrote `Normalize and Authorize`, and
+reparameterized `Sheets: leads_backup` — so TC-01, TC-02, TC-18 and TC-19 were
+all covering a workflow that no longer existed. Each was re-executed against
+the P08 artifact and each held.
+
+What is *not* proven is **TC-17**, reconciliation. The sweep is built, exported
+and deliberately inactive: it needs a read-only GoHighLevel credential that
+does not exist. Its query has never returned a live `200`, so it is recorded as
+`BLOCKED`, not as a pass.
 
 # Completed
 
@@ -84,16 +90,14 @@ reconciliation.
   open.** Of the nine open, only #9 has been started.
 - **Sprint board.** *GHL Leadflow Demo Sprint* — statuses Backlog, Ready, In
   Progress, Testing, Done, Blocked, plus a P0–P3 priority field. All 17 issues
-  loaded and set to their real state. **Read from the board while writing this,
-  before the P07 closure: eight Done, one In Progress (#9), three Blocked, five
-  Backlog** — seventeen total, and the eight Done are exactly the eight closed
-  issues above, so the two views agree. **Pending, as this prompt closes:** #9
-  moves to Done and #10 from Blocked to Ready, giving nine Done, one Ready, two
-  Blocked, five Backlog. That transition is stated as pending rather than
-  written as observed, because the board is private and this file is its only
-  public mirror. Re-read the board rather than trusting this line; the
-  repository has twice been bitten by treating a change that *should* have
-  landed as one that did.
+  loaded and set to their real state. **Read from the board at the start of
+  P08: nine Done, #10 Ready, #11 and #12 Blocked, five Backlog** — seventeen
+  total, and the nine Done are exactly the nine closed issues above, so the two
+  views agree. **P08 moved #10 Ready → In Progress**, observed, not assumed.
+  **#10 stays open and In Progress at the end of P08**, because TC-17 is a
+  named residual rather than a done criterion. Re-read the board rather than
+  trusting this line; the repository has twice been bitten by treating a change
+  that *should* have landed as one that did.
 
 - **GHL MCP access.** Official HighLevel MCP connected over OAuth
   (`https://services.leadconnectorhq.com/mcp/anthropic/v2`), project-scoped
@@ -162,22 +166,79 @@ reconciliation.
   attribution retracted in P07**. It is person-scoped, not
   event-scoped, so it does not close the gap ADR-002 originally described —
   see "Known risks" below and ADR-002 "Consequences to watch".
+- **Bounded retry with backoff — P08.** A failed `leads_backup` write now
+  answers **202 `retry_scheduled`**, not 500, because the workflow owns the
+  outcome and 500 would be a lie. The retry is held inside the original
+  execution by a **database-persisted** `Wait` that loops back through the
+  fault gate, so the switch is re-read on every attempt and a transient failure
+  can genuinely clear. Budget: **3 attempts, base 70s, ×2, additive-only jitter
+  0–20%, cap 300s** — every constant in one Code node. Observed live: 80s then
+  166s, terminal at 4m03s. The 70-second base and the one-sided jitter are both
+  forced by an n8n behaviour, not taste: a wait under 65 seconds is held in
+  memory rather than persisted, and symmetric jitter would drop the first retry
+  under that line. See [`docs/n8n-setup.md`](docs/n8n-setup.md) §5b.
+- **Terminal handoff — P08.** Exhaustion writes ledger `failed`, one
+  `needs_human` row (`status=open`, `owner=unassigned`,
+  `lastAction=retry_exhausted`) and a `run_log` `outcome=retry_exhausted`
+  distinct from both `invalid_payload` and `unauthorized`. The `needs_human`
+  tab is written for the first time. Manual replay needed no new tooling:
+  `Ledger State` short-circuits only on `completed`, so a `failed` row is
+  re-claimed on the next delivery of the same `eventId`.
+- **Validation contract loosened — P08.** `email` alone is no longer required.
+  The rule is `opportunityId` + `contactId` + **at least one of** email or
+  phone, and the 422 names the rule (`email_or_phone`) rather than blaming one
+  field. The old rule rejected a phone-only lead the business could have called
+  back, which is the one thing `architecture.md` §7's invariant forbids.
+- **Operator-only fault injection — P08.** The `leadflow_test_controls` Data
+  Table arms the downstream failure for TC-10/11/12. It is deliberately not a
+  payload field — a public form must never be able to steer the pipeline into
+  its own failure path or into the human-review queue. Append-only (n8n exposes
+  no row update), so the switch carries its own history. Fails open by
+  construction. **Left `off`.**
+- **Reconciliation sweep — P08, built and inactive.** 12 nodes, schedule every
+  10 minutes, one candidate at a time. Asks GHL for recent opportunities and
+  asks *our own ledger* whether it has seen each derived `eventId` — the
+  question moved to the only side that can answer it, because
+  `search-opportunity` has no custom-field filter. Safe to run twice by
+  construction. Artifact:
+  [`n8n/workflows/reconciliation-sweep.sanitized.json`](n8n/workflows/reconciliation-sweep.sanitized.json).
+- **Internal test harness — P08.** Two manual-trigger-only n8n workflows made
+  the whole reliability suite executable without a browser and without anyone
+  handling the shared secret: a sender that injects
+  `$vars.GHL_WEBHOOK_SHARED_SECRET` in the HTTP node's own expression at send
+  time — so it never enters an item or execution data — and an evidence reader
+  over the three sheet tabs, the ledger and the fault switch. Neither has a
+  public trigger.
+- **Three defects found by the tests they were meant to pass.** The 422 body
+  named no field; every node on the failure branch read `$json`, which by then
+  held the row the previous write had returned rather than the decision item;
+  and the `needs_human` append had an empty `columns.schema`, so the terminal
+  handoff silently did not happen while the ledger said `failed`. All three
+  fixed and re-run. The third is the one worth remembering.
 
 # In Progress
 
-- **Issue #9 — idempotency and the duplicate scenario.** The work is complete
-  and TC-03 passes; the issue and its board card close as this prompt ends. It
-  is listed here rather than under Completed because, at the moment this file
-  was written, GitHub still reported it open.
-- Nothing else. P07's build is finished; the next sprint item (#10) has not
-  been started.
+- **Issue #10 — failure, retry and observability.** TC-09 through TC-12 pass
+  against the deployed workflow. TC-17 is the residual: built, inactive,
+  waiting on a credential. The issue stays **open** with that residual named,
+  rather than being closed on four of five acceptance criteria.
 
 # Blocked
 
-- **The reliability scenarios — TC-09 through TC-12, and TC-17.** Validation
-  rejection is built and returns 422, but retry, retry-exhaustion, and the
-  reconciliation sweep are not. These are the point of the demo and are the
-  largest remaining gap.
+- **TC-17 — reconciliation.** The sweep exists as a 12-node published artifact
+  and is deliberately **not activated**. It needs a GoHighLevel credential n8n
+  does not have, and cannot borrow: the OAuth grant used everywhere else in
+  this project belongs to the Claude Code MCP client, whose token lives in that
+  client's own store bound to its `client_id`/`client_secret`. **An MCP session
+  is not a runtime credential.** The proportionate fix is a read-only Private
+  Integration scoped to `opportunities.readonly` and nothing else — one scope,
+  because the opportunity search already embeds the contact's name, email and
+  phone.
+- **TC-02b — still not re-run against GHL v12.** It needs two live submissions
+  of the public GHL form. No browser automation was registered in the P08
+  session, and the form has no documented submit endpoint, so this did not move.
+- **Pre-P07 `inquiry_count` null safety — not addressed in P08.** Same cause:
+  exercising it requires a form submission from a legacy contact.
 - **Docker engine is stopped**, so container-level inventory is undetermined.
   Only relevant if the Docker + ngrok fallback is ever needed.
 
@@ -283,9 +344,45 @@ reconciliation.
   Profile) than the one already fixed for email/phone/address. Not committed
   to git and not part of the interview-facing fixture, so not blocking, but
   still open.
+- **A retry that dies mid-wait is not re-driven.** The retry lives inside the
+  original execution rather than in a sweeper polling the ledger — a deliberate
+  trade that keeps exactly one copy of the backup-write node, so
+  `cellFormat: RAW` cannot drift between two copies. The cost: an execution
+  lost while waiting leaves its ledger row `retry_scheduled` forever.
+  **There is a live instance:** ledger row `id=5`,
+  `ghl:opportunity-created:p08-tc10-transient`, orphaned by a P08 execution
+  that died on a defect before that defect was fixed. Left in place because it
+  is the honest shape of the limitation. The reconciliation sweep does **not**
+  rescue it — that `opportunityId` is synthetic and has no GHL Opportunity.
+- **A `failed` ledger row is not proof a human was told.** The `needs_human`
+  write is a separate node and can fail on its own; ledger row `id=7` is
+  exactly that case, from TC-12's first run. Judge the handoff on the
+  `needs_human` row, never on the ledger alone.
+- **The retry attempt counter depends on an undocumented n8n resolution rule.**
+  Downstream nodes read `$('Retry Decision').first()`, and within a loop
+  iteration n8n resolves that to the *current* run — verified live across three
+  attempts in TC-12, but not a documented guarantee. If the ladder ever starts
+  repeating attempt 1, this is the first thing to check.
+- **The reconciliation sweep recovers a thinner row than the webhook path.**
+  `business` is empty and `service` is **derived** by splitting the Opportunity
+  name on `" - "`, because both live on contact custom fields that would need a
+  scope the sweep did not ask for. Recovered rows carry
+  `lastAction=reconciled` so they cannot be mistaken for first-class
+  deliveries. Adding `contacts.readonly` is a defensible upgrade; taking it
+  silently is not.
+- **One parameter in the sweep is unverified.** The location is sent as
+  `location_id`; it has never been confirmed against a live `200` because no
+  credential has existed to make the call. The alternative spelling is
+  `locationId`. The node carries a note saying so.
+- **P08 fixtures now sit in the durable backup.** `p08-regress-alpha`,
+  `p08-tc10b-transient` and `p08-tc19-formula` have `leads_backup` rows;
+  `p08-tc12-persistent` and `p08-tc12b-persistent` are terminal `failed` with
+  no row. All fictional, all carrying `source = P08 Internal Test Harness` —
+  the column to filter on before a demo walkthrough.
 - **The documentation-to-implementation ratio is improving but is still the
-  main risk.** One full GHL leg now runs and is proven end to end; n8n,
-  Sheets, and the webhook remain entirely unbuilt.
+  main risk.** The GHL leg, the n8n ingress, the durable backup and now the
+  retry and human-handoff paths all run and are proven end to end.
+  Reconciliation is the one piece still documented but unproven.
 
 # Environment
 
@@ -293,7 +390,7 @@ reconciliation.
 |---|---|
 | Toolchain | Git, GitHub CLI, Node, npm, Claude Code present and verified |
 | Docker | Installed, engine stopped |
-| Playwright | Not installed — required later for E2E evidence |
+| Playwright | **Not available as a tool in the P08 session.** The MCP registry held engram, context7, excalidraw, leadconnector and n8n — no browser automation. Everything GHL-UI-shaped (TC-02b's re-run, the `inquiry_count` null fix) is blocked on this; everything n8n-shaped was done over MCP instead |
 | n8n | **n8n Cloud live** — workflow published and active on its production webhook URL. Variables and Data Tables both confirmed available on the plan. MCP server connected, tools available. |
 | GoHighLevel | **Connected** — official MCP over OAuth, one trial location. No PIT. Operations require an explicit `locationId` even so. |
 | Google | **Sheets connected to n8n** via a credential-store OAuth2 credential, bound only to the native Sheets node. Sheet is private. |
@@ -324,27 +421,35 @@ Detail in [`docs/environment.md`](docs/environment.md).
 | — | The stage pull-back is gated by a **second `Find Opportunity` filtered to `Follow-up`**, never an unconditional move. Dragging an opportunity back from `Qualified` or `Appointment` would corrupt stage-duration metrics — `architecture.md` §3 |
 | — | `inquiry_count` is **initialised to 1 on the first inquiry, after `Create Opportunity`**, so a failure there can never block opportunity creation. This protects contacts created from P07 onward only — **pre-P07 contacts still have the field unset**, and the increment's behaviour on a null is undocumented and unobserved; see "Known risks" |
 | — | **No downstream `inquiry.repeated` event.** GHL exposes no stable per-submission identity; reusing the opportunity-created key would make the ledger discard the re-inquiry as a redelivery, and a receive-time key would break retry dedup. Compensation stays in GHL and the event-grained backup is deferred — see [ADR-002](docs/decisions/ADR-002-idempotency-strategy.md) |
+| — | A failed backup answers **202 `retry_scheduled`**, not 500. The workflow owns a durable retry, so 500 — "this failed, it's yours" — would be false. 500 survives only for a one-attempt budget, which is unreachable at `maxAttempts = 3` |
+| — | The retry lives **inside the original execution** on a durable `Wait`, not in a separate ledger-polling sweeper. One copy of the backup-write node means `cellFormat: RAW` cannot drift between two copies — a failure this repo has already had once. Cost: an execution lost mid-wait is not re-driven |
+| — | Retry budget: **3 attempts, base 70s, ×2, jitter additive-only 0–20%, cap 300s.** The 70s base and one-sided jitter are forced by n8n holding sub-65-second waits in memory instead of persisting them |
+| — | Validation requires `opportunityId` + `contactId` + **at least one of** email or phone. A phone-only lead is contactable and must not be rejected |
+| — | Failure injection lives in an **operator-only, append-only Data Table** that fails open — never a payload field, because that would let an anonymous form submitter choose which leads fail |
+| — | The reconciliation sweep asks **our ledger**, not GHL, whether an event was seen. `search-opportunity` cannot filter by custom field, so the vendor cannot answer the question — see [`docs/n8n-setup.md`](docs/n8n-setup.md) §5d |
+| — | n8n gets its own **read-only Private Integration** scoped to `opportunities.readonly`. The Claude Code MCP OAuth grant is not a runtime credential and cannot be lent |
 
 # Next 3 actions
 
-1. **Build the reliability half — TC-09 through TC-12** (Issue #10). Retry with
-   backoff, retry exhaustion into a terminal failed state, and `needs_human`
-   routing. The `Ledger: Fail` branch and the `needs_human` tab already exist as
-   the landing places; nothing drives them yet. This is the largest gap between
-   what the demo claims and what it proves.
-2. **Re-run TC-02b against v12, and exercise the duplicate-opportunity guard for
-   real.** The GHL workflow changed underneath TC-02b's pass — `Allow Re-entry`
-   went on and the `Find Opportunity` split was added — so that pass covers v9
-   only. With re-entry on, a fast double submission can finally reach
-   `Create Opportunity` twice for one contact, which is the first test that would
-   actually exercise the guard. Until it runs, the guard is configured and
-   unproven, and the docs say exactly that.
-3. **Build the reconciliation sweep (TC-17).** Six opportunities with no
-   `leads_backup` row sit in the location as ready-made test data — enumerated
-   in "Known risks". ADR-002 makes
-   this backstop more load-bearing than originally planned, since the
-   opportunity-side race mitigation does not exist. Note the sweep as designed
-   will **not** recover a suppressed re-inquiry — see "Known risks".
+1. **Give the reconciliation sweep a credential and run TC-17** (Issue #10's
+   residual). Create a GHL Private Integration scoped to
+   `opportunities.readonly`, bind it to an n8n Header Auth credential, confirm
+   the location query-parameter spelling on the first live `200` — it is
+   currently `location_id` and **unverified** — then activate the sweep. Six
+   opportunities with no `leads_backup` row are sitting in the location as
+   ready-made test data. Assert the second run changes nothing, and that
+   neither Valeria Cruz nor the formula fixture is touched.
+2. **Re-run TC-02b against GHL v12, and exercise the duplicate-opportunity
+   guard for real.** Unchanged from P07, and unmoved: it needs two live
+   submissions of the public form. With re-entry on, a fast double submission
+   can finally reach `Create Opportunity` twice for one contact, which is the
+   first test that would actually exercise the guard. Until it runs, the guard
+   is configured and unproven.
+3. **Close the `inquiry_count` null on pre-P07 contacts**, and clean up the
+   accumulated fixture noise — the orphaned `retry_scheduled` ledger row, the
+   `failed` row with no `needs_human` row, and the `p08-` rows in
+   `leads_backup`. All are documented rather than hidden; none is dangerous;
+   all of them are noise in a demo walkthrough.
 
 # Demo readiness
 
@@ -370,13 +475,28 @@ claimed: the duplicate-opportunity guard has never been exercised, TC-02b's
 pass no longer covers the deployed workflow, and a re-inquiry writes no backup
 row and cannot be recovered by the reconciliation sweep as designed.
 
-**What it cannot yet demonstrate** is the half the design says is the point:
-retry, retry exhaustion, human-review routing, and reconciliation. Every
-reliability claim in `architecture.md` §7 beyond validation is still design,
-not evidence — and six opportunities with no backup row are sitting in the CRM
-as proof that the reconciliation sweep is missing. P07 added a **second kind**
-of gap on top of those six, and the sweep cannot even see this one: a
-re-inquiry writes no backup row *and* creates no opportunity, so there is
-nothing for an opportunity-keyed sweep to find. Documented rather than hidden.
+**And the reliability half is now demonstrable too.** Submit a lead with no way
+to reach them and it is refused `422` naming the rule, with nothing written but
+the audit line. Break the downstream write and the caller gets `202`, the
+execution goes to sleep in the database with a due time, and the ledger says
+`retry_scheduled` with the reason. Fix the breakage and it wakes up, writes
+exactly one row, and clears its own retry state. Leave it broken and it spends
+a bounded budget — 3 attempts over four minutes, visible attempt by attempt in
+`run_log` — then stops, marks itself `failed`, and puts the lead in front of a
+human instead of dropping it.
+
+**What it still cannot demonstrate is reconciliation.** The sweep is built,
+exported and inactive; its query has never returned a live `200`, and six
+opportunities with no backup row are still sitting in the CRM as proof it is
+missing. P07 added a second kind of gap the sweep could not see even once it
+runs: a re-inquiry writes no backup row *and* creates no opportunity, so an
+opportunity-keyed sweep scans past it.
+
+Three things are weaker than a clean matrix would suggest, and are stated here
+rather than buried: TC-02b still covers a GHL workflow that no longer exists;
+the duplicate-opportunity guard has never been exercised; and P08's own tests
+found three defects, one of which produced a `failed` ledger row with nobody
+told — the exact silent loss TC-12 exists to disprove. That row is still in the
+ledger.
 
 All evidence is sequential. Nothing here says anything about concurrency.
