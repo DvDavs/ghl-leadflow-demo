@@ -125,9 +125,13 @@ Create a Data Table named `leadflow_event_ledger` with these columns:
 | `correlationId` | String | The delivery that most recently touched this row. |
 | `opportunityId` | String | For reconciliation back into GHL. |
 | `firstSeenAt` | String | ISO-8601. Set on first claim, never overwritten. |
-| `updatedAt` | String | ISO-8601. Rewritten on every transition. |
 | `status` | String | `claimed` \| `completed` \| `failed` |
 | `attempt` | Number | Incremented per delivery of the same `eventId`. |
+
+**Do not add an `updatedAt` column.** n8n Data Tables maintain `createdAt` and
+`updatedAt` themselves; a user column of the same name is redundant and drifts
+from the system value. The design originally specified one — the live table
+proved it unnecessary, and the workflow no longer writes it.
 
 The ledger is deliberately **separate from `run_log`**. `run_log` is an
 append-only narrative for humans; the ledger is queried state that decides

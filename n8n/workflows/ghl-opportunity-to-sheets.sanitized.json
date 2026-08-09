@@ -387,7 +387,6 @@
             "correlationId": "={{ $json.correlationId }}",
             "opportunityId": "={{ $json.opportunityId }}",
             "firstSeenAt": "={{ $json.firstSeenAt }}",
-            "updatedAt": "={{ $json.timestamp }}",
             "status": "claimed",
             "attempt": "={{ $json.attempt }}"
           },
@@ -568,7 +567,6 @@
             "correlationId": "={{ $('Ledger State').item.json.correlationId }}",
             "opportunityId": "={{ $('Ledger State').item.json.opportunityId }}",
             "firstSeenAt": "={{ $('Ledger State').item.json.firstSeenAt }}",
-            "updatedAt": "={{ $now.toISO() }}",
             "status": "completed",
             "attempt": "={{ $('Ledger State').item.json.attempt }}"
           },
@@ -577,7 +575,8 @@
           ],
           "schema": []
         },
-        "options": {}
+        "options": {},
+        "matchType": "anyCondition"
       },
       "id": "ledger-complete",
       "name": "Ledger: Complete",
@@ -672,7 +671,6 @@
             "correlationId": "={{ $('Ledger State').item.json.correlationId }}",
             "opportunityId": "={{ $('Ledger State').item.json.opportunityId }}",
             "firstSeenAt": "={{ $('Ledger State').item.json.firstSeenAt }}",
-            "updatedAt": "={{ $now.toISO() }}",
             "status": "failed",
             "attempt": "={{ $('Ledger State').item.json.attempt }}"
           },
