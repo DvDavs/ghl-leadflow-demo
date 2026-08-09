@@ -134,9 +134,9 @@ What each layer actually protects, on that path:
 
 | Duplicate of… | Prevented by | Not prevented by |
 |---|---|---|
-| **A person** — same human, two submissions | GHL's contact upsert **[ASSUMPTION]** | The ledger — it never sees the first write |
+| **A person** — same human, two submissions | GHL's contact upsert — **confirmed 2026-08-08**: matches on email OR phone independently, either field alone is sufficient. Concurrent-call behaviour is still **[ASSUMPTION]** | The ledger — it never sees the first write |
 | **A delivery** — one event, webhook sent twice | **The ledger** — zero downstream work on the second | — |
-| **An opportunity** — one event, two opportunities | The pre-create query on `external_lead_id` **[ASSUMPTION]** | The ledger alone |
+| **An opportunity** — one event, two opportunities | Nothing, currently. The pre-create query on `external_lead_id` is **confirmed unbuildable 2026-08-08** — `search-opportunity` has no custom-field filter (see [ADR-002](decisions/ADR-002-idempotency-strategy.md)). Only the ledger's own check-then-write and the reconciliation sweep remain | The ledger alone, and the race window it does not close |
 
 So the ledger's real job on this path is preventing **duplicate processing**: a
 second backup row, a second AI call, a second notification, a second stage
@@ -181,19 +181,23 @@ identical events can both miss. With a Sheets-backed ledger the window is
 roughly **one to two seconds**; a database-backed ledger shrinks it to tens of
 milliseconds but still does not make it atomic.
 
-Two things are *intended* to bound the damage, and **both rest on unverified
-capabilities** — see [ADR-002](decisions/ADR-002-idempotency-strategy.md):
+Two things were *intended* to bound the damage. Both were checked live against
+the trial location on 2026-08-08 — see
+[ADR-002](decisions/ADR-002-idempotency-strategy.md) for the full result:
 
 - A **second independent check** at the GHL layer — query opportunities by the
-  `external_lead_id` field before creating one. **[ASSUMPTION]** — searching by
-  a custom-field value is unconfirmed.
-- GHL's contact upsert is expected to deduplicate on email and/or phone, which
-  would make a duplicate *contact* impossible and leave only a duplicate
-  *opportunity* exposed. **[ASSUMPTION]** — matching semantics and behaviour
-  under concurrent calls are undocumented.
+  `external_lead_id` field before creating one. **Confirmed absent.**
+  `search-opportunity`'s schema has no custom-field parameter. This mitigation
+  does not exist as discovered — a real gap, not an open question.
+- GHL's contact upsert deduplicates on email and/or phone, which makes a
+  duplicate *contact* impossible. **Confirmed** — either field alone is
+  sufficient to merge. Behaviour under truly concurrent calls remains
+  **[ASSUMPTION]**; the verification was strictly sequential.
 
-Verify both as soon as a token exists. Until then: one real check, and two
-hoped-for ones.
+Net: the ledger is the only remaining check on the opportunity side, and its
+race window (above) is unclosed. The reconciliation sweep is the practical
+backstop until a client-side custom-field filter or another mitigation is
+designed — later phase, not this one.
 
 **[LATER]** A real atomic claim: a unique index with insert-or-ignore, or a
 queue partitioned by `externalLeadId` so identical keys serialize by
@@ -293,7 +297,7 @@ release gate, not a guideline.
 
 Documented rather than faked:
 
-1. **Not exactly-once.** Best-effort dedup with two independent checks and a bounded, quantified race window.
+1. **Not exactly-once.** Best-effort dedup with a bounded, quantified race window. Of the two mitigations ADR-002 originally proposed, only one exists: GHL's contact upsert confirmed to dedupe on email or phone. The opportunity-side custom-field check is confirmed unbuildable against the discovered API — see ADR-002 "Consequences to watch".
 2. **Cannot detect the absence of leads.** A silently disconnected source needs volume baselining. This is the hardest failure in the class and we do not solve it.
 3. **Single n8n instance.** No queue mode, no durable retry queue.
 4. **Manual dead-letter replay only.** Automated replay with a UI is out of scope.

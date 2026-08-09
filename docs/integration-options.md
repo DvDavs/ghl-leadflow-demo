@@ -62,7 +62,7 @@ runtime with a real token.**
 | Calendars and appointments | **Yes** | same | Calendars, groups, appointments, events, free/blocked slots, schedules, services |
 | Conversations and messages | **Yes** | same | Send and read messages, message status |
 | Location / sub-account targeting | **Yes** | same | Every request targets a single location; `list_locations` tool exists |
-| Custom fields | **Partial — unconfirmed** | same | Absent from the v2 coverage list. The older 36-tool list includes a custom-field read. Contact create/update carries custom-field values in the REST API, but a dedicated management operation could not be confirmed |
+| Custom fields | **Yes — confirmed live** | live grant, 2026-08-08 | `get-custom-fields`, `get-custom-fields-by-object-key`, `get-custom-field-by-id`, `get-custom-values`; write via `locations.create-custom-field` / `locations.update-custom-field` / `locations.delete-custom-field`. Confirmed via `search_operations` + `describe_operation` against a real trial-location grant — see [`ghl-setup.md`](ghl-setup.md) |
 | **Workflows** | **No — absent from the coverage list** | same | **The decisive gap.** No workflow tools in the v2 list or the 36-tool list |
 
 ### The finding that shapes the sprint
@@ -84,8 +84,10 @@ The docs give this command:
 claude mcp add --transport http leadconnector https://services.leadconnectorhq.com/mcp/anthropic/v2
 ```
 
-**Not run.** Installing MCPs is out of scope for this phase and requires
-credentials that have not been requested.
+**Run 2026-08-08**, via OAuth against a disposable trial sub-account. See
+[`ghl-setup.md`](ghl-setup.md) for the reproducible checklist and
+[ADR-002](decisions/ADR-002-idempotency-strategy.md) for what the connection
+was used to verify.
 
 ---
 
@@ -376,13 +378,14 @@ nothing here is mistaken for established fact.
 8. **ngrok plus n8n as an officially supported combination.** n8n names no third-party tunnel service. The pairing is an inference from `N8N_WEBHOOK_URL`.
 9. **Whether older released n8n versions still accept `n8n start --tunnel`.** Verified absent from `master` and current docs; tagged releases were not audited.
 10. **GHL webhook retry and delivery-guarantee policy.** Not documented on any consulted page. The at-least-once assumption in [ADR-002](decisions/ADR-002-idempotency-strategy.md) rests on this and is flagged there as an assumption.
-11. **Contact upsert matching semantics and concurrency behaviour.** The operation is documented as existing; *what field it matches on* — email, phone, or both — and how it behaves under concurrent calls are not. [ADR-002](decisions/ADR-002-idempotency-strategy.md)'s race-window argument depends on this.
-12. **Searching opportunities by a custom-field value.** Nothing in the consulted documentation confirms it, via MCP or REST. The second independent dedup check and the reconciliation sweep both require it.
+11. ~~Contact upsert matching semantics and concurrency behaviour.~~ **Partially resolved 2026-08-08, live probe against the trial location.** `upsert-contact` matches on **email OR phone independently — either field alone is sufficient to merge into the existing contact**, and the differing field is overwritten with the latest call's value (last-write-wins). Verified with two sequential scenarios (same email/different phone; same phone/different email), both merged. **Concurrency behaviour remains unverified** — the probe was strictly sequential by design and proves nothing about two truly simultaneous calls. See [ADR-002](decisions/ADR-002-idempotency-strategy.md) for the full result and the still-open concurrency question.
+12. ~~Searching opportunities by a custom-field value.~~ **Resolved 2026-08-08, schema-confirmed absent.** `describe_operation` on `search-opportunity` shows its full query-parameter set (`assignedTo`, `campaignId`, `contactId`, `country`, `date`, `endDate`, `id`, `pipelineId`, `pipelineStageId`, `q`, `status`, plus pagination) — **no parameter accepts a custom-field key or value.** This is confirmed by schema inspection, not inferred from a failed live call. **Consequence:** ADR-002's second independent dedup check (query opportunities by `external_lead_id` before creating one) is not buildable against this operation as discovered. The idempotency design needs a follow-up decision — see ADR-002's "Consequences" section.
 
-**Items 11 and 12 are the highest-priority verifications in the sprint.** Each is
-a five-minute check once a token exists, and three documents currently lean on
-them. If either turns out to be unsupported, the idempotency design needs
-reworking — which is much cheaper to discover on day one than on day two.
+**Items 11 and 12 were the highest-priority verifications in the sprint and are
+now closed.** Item 11 resolved favourably for the matching question but leaves
+concurrency open by design. Item 12 resolved unfavourably: the mitigation
+ADR-002 was counting on does not exist as discovered, which is a real gap the
+next phase must address, not a formality to note in passing.
 
 ### Unverified community claims — not evidence
 

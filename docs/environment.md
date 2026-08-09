@@ -85,8 +85,8 @@ document and its untracked local counterpart.
 
 | Service | Detected | Configured | Tested | Status |
 |---|---|---|---|---|
-| GoHighLevel access | no | no | no | not detected |
-| n8n | no | no | no | not detected |
+| GoHighLevel access | yes | yes | yes | connected — OAuth via official MCP, one trial location, see [`ghl-setup.md`](ghl-setup.md) |
+| n8n | no | no | no | not detected locally — hosting decided as n8n Cloud, see Blockers |
 | Google (Sheets/API) | no | no | no | not detected |
 | GitHub | yes | yes | yes | connected |
 | ngrok (webhook tunnel) | yes | unknown | no | installed, not running |
@@ -113,7 +113,7 @@ found where we looked", never "does not exist on this machine".
 
 | Name | Installed | Configured | Connected | Status |
 |---|---|---|---|---|
-| GoHighLevel MCP | no | no | no | **not detected** |
+| GoHighLevel MCP | yes | yes | **yes** | connected — OAuth, project-scoped `.mcp.json`, one trial location authorized. See [`ghl-setup.md`](ghl-setup.md) |
 | Excalidraw MCP | no | no | no | **not detected** |
 | Playwright MCP | no | no | no | **not detected** |
 | Documentation and memory MCPs | yes | yes | **yes** | connected — not part of the CRM flow |
@@ -126,10 +126,11 @@ file counts as *configured*, never as *connected*.
 locations. A project-scoped configuration nested elsewhere would have been
 missed. "Not detected" is scoped to what was inspected.
 
-Two consequences for this sprint: **no GoHighLevel MCP is configured here**, so
-the integration layer cannot be assumed (see
-[`integration-options.md`](integration-options.md)); and **Excalidraw MCP is
-absent**, which is why the diagrams in this repository are Mermaid.
+At audit time, no GoHighLevel MCP was configured, so the integration layer
+could not be assumed. **Superseded 2026-08-08** — see the MCP registry table
+above and [`ghl-setup.md`](ghl-setup.md); the official MCP is now connected via
+OAuth. Excalidraw MCP remains absent, which is why the diagrams in this
+repository are Mermaid.
 
 ---
 
@@ -148,13 +149,15 @@ absent**, which is why the diagrams in this repository are Mermaid.
 **No hard blockers.** No capability required for the immediate sprint is
 missing.
 
-Two items are pending decisions rather than blockers:
+Both prior pending decisions are now resolved:
 
-1. **n8n hosting model** — self-hosted via Docker, local npm, or n8n Cloud. This
-   determines whether the Docker engine and a webhook tunnel become *required
-   now*. See [`integration-options.md`](integration-options.md).
-2. **GoHighLevel integration layer** — MCP, REST API, or webhooks. None is
-   configured, and credentials were intentionally not requested.
+1. **n8n hosting model — decided.** Primary: **n8n Cloud** (already
+   provisioned and ready). Fallback: **Docker local + ngrok**. A VPS and any
+   existing server were explicitly ruled out. See
+   [`integration-options.md`](integration-options.md) §3–4.
+2. **GoHighLevel integration layer — decided.** Official MCP over OAuth,
+   scoped to one disposable trial location. No Private Integration Token was
+   created. See [`ghl-setup.md`](ghl-setup.md).
 
 **Human action required for authentication:** none. GitHub CLI and SSH are both
 already authenticated and functionally verified.

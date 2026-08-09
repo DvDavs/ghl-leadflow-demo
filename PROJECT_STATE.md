@@ -10,12 +10,12 @@ can prove it did so.
 
 # Current milestone
 
-**Milestone 2 — Architecture and repository baseline.**
+**Milestone 3 — GHL access and capability verification.**
 
-Design-first: the architecture, lifecycle model, idempotency strategy, and test
-matrix are written before any GHL, n8n, or Google resource is created, so the
-implementation is measured against a contract rather than the contract being
-back-fitted to the implementation.
+The official HighLevel MCP is connected via OAuth, scoped to one disposable
+trial location. The two highest-priority unknowns carried forward from
+Milestone 2 have been checked against live data. No E2E flow exists yet — this
+milestone closes unknowns, it does not build the pipeline.
 
 # Completed
 
@@ -51,31 +51,59 @@ back-fitted to the implementation.
   loaded and set to their real state: three Done, one Ready, eight Blocked,
   five Backlog. The board is private; this file is the public mirror of it.
 
+- **GHL MCP access.** Official HighLevel MCP connected over OAuth
+  (`https://services.leadconnectorhq.com/mcp/anthropic/v2`), project-scoped
+  `.mcp.json` holding only the endpoint URL, no PIT created. Confirmed scoped
+  to exactly one location. See [`docs/ghl-setup.md`](docs/ghl-setup.md).
+- **Trial location identity — partially sanitized.** Location/business name
+  fields are fictional (`LeadFlow Demo` / `Northstar Demo Services`). David
+  explicitly approved leaving the pre-existing email, phone, website, and
+  address as-is rather than requiring full fictional replacement. This is a
+  deliberate scope decision, not an oversight.
+- **Contact upsert matching semantics — resolved.** Live sequential probe
+  (fictional fixtures, cleaned up after) confirms `upsert-contact` matches on
+  email OR phone independently; either field alone merges into the existing
+  contact, and the differing field is overwritten by the latest call.
+  Concurrent-call behaviour remains unverified by design — the probe was
+  sequential. See [ADR-002](docs/decisions/ADR-002-idempotency-strategy.md).
+- **Opportunity custom-field search — resolved, unfavourably.**
+  `search-opportunity`'s schema (confirmed via `describe_operation`) has no
+  custom-field parameter. ADR-002's planned second independent dedup check
+  cannot be built against this operation. Flagged as a real design gap for a
+  later phase, not papered over.
+- **Custom fields capability — corrected.** Previously classified
+  *partial — unconfirmed*; live discovery confirms dedicated read and write
+  operations exist in the grant. No fixture custom field was created — the
+  opportunity-search question resolved by schema inspection alone.
+- **n8n hosting — decided.** Primary: n8n Cloud (provisioned, ready). Fallback:
+  Docker local + ngrok. VPS and any existing server ruled out. See
+  [`docs/integration-options.md`](docs/integration-options.md) §3–4.
+
 # In Progress
 
 - Nothing. This milestone is complete.
 
 # Blocked
 
-- **All GHL, n8n, and Google implementation work.** No external resource has
-  been created. This is deliberate sequencing, not an obstacle.
-- **n8n hosting decision.** Cannot be finalized until we know whether an n8n
-  instance already exists on the interviewer's side. Reusing one beats standing
-  one up. See [`docs/integration-options.md`](docs/integration-options.md).
-- **Docker engine is stopped**, so container-level inventory is undetermined and
-  a self-hosted n8n cannot start until it is started. Only relevant if
-  self-hosting is chosen.
+- **TC-01 and the rest of the E2E build.** No pipeline, form, or n8n workflow
+  exists yet — deliberately out of this milestone's scope.
+- **Docker engine is stopped**, so container-level inventory is undetermined.
+  Only relevant if the Docker + ngrok fallback is ever needed.
 
 # Known risks carried forward
 
-- **Two unverified GoHighLevel capabilities hold up the idempotency design:**
-  the matching semantics of contact upsert, and whether opportunities can be
-  searched by a custom-field value. Items 11 and 12 in
-  [`docs/integration-options.md`](docs/integration-options.md) §5. Both are
-  five-minute checks once a token exists, and three documents lean on them.
-- **The documentation-to-implementation ratio is now the main risk.** The design
-  set is thorough and nothing runs. One passing test case changes the meaning of
-  the whole repository; more prose does not.
+- **The opportunity-side race mitigation does not exist.** Confirmed, not
+  assumed: `search-opportunity` cannot filter by `external_lead_id`. The
+  reconciliation sweep is now the only backstop for a raced duplicate
+  opportunity. A follow-up design decision (client-side filter, or accept the
+  documented residual risk) is needed before this is fully closed — see
+  ADR-002 "Consequences to watch".
+- **Concurrent-call behaviour of contact upsert is still unverified.** The
+  live probe was sequential by design; it resolved matching semantics, not
+  race behaviour.
+- **The documentation-to-implementation ratio is still the main risk.** One
+  live location and two resolved unknowns are real progress, but no lead has
+  gone through the pipeline end to end yet.
 
 # Environment
 
@@ -84,10 +112,10 @@ back-fitted to the implementation.
 | Toolchain | Git, GitHub CLI, Node, npm, Claude Code present and verified |
 | Docker | Installed, engine stopped |
 | Playwright | Not installed — required later for E2E evidence |
-| n8n | Not detected locally |
-| GoHighLevel | No access configured, no credentials requested |
+| n8n | Not detected locally; hosting decided as n8n Cloud (ready), Docker+ngrok fallback |
+| GoHighLevel | **Connected** — official MCP over OAuth, one trial location. No PIT. |
 | Google | No integration configured |
-| Tunnel | ngrok installed, not running, auth state unconfirmed |
+| Tunnel | ngrok installed, not running, auth state unconfirmed — only needed if n8n Cloud fallback triggers |
 
 Detail in [`docs/environment.md`](docs/environment.md).
 
@@ -101,17 +129,19 @@ Detail in [`docs/environment.md`](docs/environment.md).
 | — | Repository stays public for now; Git transport is SSH; sensitive environment detail is not published |
 | — | Mermaid is the diagramming tool, in place of Excalidraw |
 | — | First golden path is a single service type; four-service routing and appointments follow once it is stable |
+| — | GHL integration via official MCP over OAuth, not a Private Integration Token — see [`docs/ghl-setup.md`](docs/ghl-setup.md) |
+| — | n8n hosting: n8n Cloud primary, Docker local + ngrok fallback; no VPS, no existing server |
+| — | Trial location identity sanitized partially by explicit owner decision — name fields fictional, contact fields left as pre-existing real values |
 
 # Next 3 actions
 
-1. **Ask whether an n8n instance already exists.** One question, and it removes
-   the largest unknown in the sprint. Reusing an instance eliminates tunnel
-   rotation, Google OAuth setup, and the trial execution cap in one move.
-2. **Create the GoHighLevel sandbox and immediately verify the two unproven
-   capabilities** — contact upsert matching semantics, and searching
-   opportunities by a custom-field value. If either is unsupported, the
-   idempotency design needs rework, and that is far cheaper to discover on day
-   one than on day two.
+1. **Design or accept a mitigation for the opportunity-side race gap.**
+   `search-opportunity` cannot filter by custom field, so ADR-002's planned
+   second independent check does not exist. Decide: client-side fetch-and-filter
+   on `external_lead_id`, or accept the reconciliation sweep as the sole
+   backstop and document the residual risk formally.
+2. **Stand up n8n Cloud and the inbound webhook.** Issue #8, now unblocked on
+   the hosting decision.
 3. **Implement TC-01 end to end, then immediately TC-02**, before adding any
    further scope. One passing duplicate-suppression test is worth more than any
    additional design document.
@@ -120,7 +150,9 @@ Detail in [`docs/environment.md`](docs/environment.md).
 
 **NOT READY.**
 
-No end-to-end flow exists. No GHL, n8n, or Google resource has been created. No
-test case has passed. What exists is a design, a test contract, and a
-publishable repository baseline — which is the honest state of the work after
-architecture and before implementation.
+No end-to-end flow exists yet. GHL access is live and two idempotency unknowns
+are resolved (one favourably, one not), but no n8n or Google resource has been
+created and no test case has passed. What exists is a design, a test contract,
+a publishable repository baseline, and — new this milestone — a verified GHL
+connection with empirical evidence instead of assumptions on two of the
+riskiest design bets.

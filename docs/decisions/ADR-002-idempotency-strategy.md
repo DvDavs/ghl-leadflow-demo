@@ -162,26 +162,38 @@ Two truly concurrent identical events can both miss:
 - A database-backed ledger shrinks it to tens of milliseconds, and still is not
   atomic.
 
-Two things are intended to bound the damage. **Both depend on capabilities that
-are not yet verified**, so neither is a claim of exactly-once — and neither is
-yet a claim of anything:
+Two things were intended to bound the damage. **Both have now been checked
+against a live trial location (2026-08-08), and the result is mixed — one
+does not exist, the other partially holds:**
 
 - **A second independent check at the GHL layer** — query opportunities by
-  `external_lead_id` before creating one. **[ASSUMPTION]** Custom fields are
-  classified *partial — unconfirmed* in
-  [`integration-options.md`](../integration-options.md) §5, and **searching
-  opportunities by a custom-field value is not confirmed at all.** If that
-  search does not exist, this check does not exist either.
-- **GHL's contact upsert is expected to deduplicate on email and/or phone**, in
-  which case a race could not produce a duplicate *contact* and the exposed risk
-  would be a duplicate *opportunity* only. **[ASSUMPTION]** The exact matching
-  semantics — email or phone or both — and the behaviour under concurrent calls
-  are undocumented. See §5 of the research.
+  `external_lead_id` before creating one. **Resolved, unfavourably.**
+  `describe_operation` on `search-opportunity` shows its complete parameter
+  schema (`assignedTo`, `campaignId`, `contactId`, `country`, `date`,
+  `endDate`, `id`, `pipelineId`, `pipelineStageId`, `q`, `status`, pagination)
+  — **no parameter accepts a custom-field key or value.** This check cannot be
+  built against the operation as discovered. It is not merely unverified; it
+  is confirmed absent. See [`integration-options.md`](../integration-options.md)
+  §5 item 12.
+- **GHL's contact upsert deduplicates on email and/or phone.** **Resolved,
+  favourably, for the matching question only.** A live sequential probe ran
+  two scenarios against fictional fixtures: (A) same email, different phone,
+  two `upsert-contact` calls; (B) same phone, different email, two calls. Both
+  merged into a single contact — **the match succeeds on email OR phone
+  independently, either field alone is sufficient**, and the differing field
+  is overwritten with the latest call's value. **Concurrent-call behaviour
+  remains [ASSUMPTION]** — the probe was strictly sequential by design (each
+  call's response was confirmed via `get-duplicate-contact` before the next
+  call was issued) and answers only "what field does it match on," not "what
+  happens when two calls race." See [`integration-options.md`](../integration-options.md)
+  §5 item 11.
 
-Verifying these two is the **first thing to do once a token exists.** Both are
-five-minute checks, and three documents currently lean on them. Until then, the
-honest statement of the race window is: one check (the ledger) is real, and the
-two that would bound it are unproven.
+**Net effect on the race window:** the ledger's check-then-write gap is now
+bounded on the *contact* side (a duplicate contact from a race is prevented by
+the confirmed email-or-phone match) but **unbounded on the *opportunity*
+side** — the one mitigation that would have caught a raced duplicate
+opportunity does not exist as discovered. This is a real design gap the next
+phase should address (see Consequences), not a residual formality.
 
 Note also **where the ledger sits** — see [`../architecture.md`](../architecture.md)
 §6.0. On the GHL-native ingress path the CRM record already exists by the time
@@ -246,6 +258,15 @@ false negatives exactly when it matters.
   duplicates are recoverable, lost leads are not.
 - A stale `claimed` entry needs a timeout, or a crash mid-flow permanently
   blocks that event's retry.
+- **New, confirmed 2026-08-08: the opportunity-side race mitigation does not
+  exist.** `search-opportunity` cannot filter by `external_lead_id` or any
+  other custom field. A raced duplicate opportunity is caught only by the
+  ledger's own check-then-write, whose window this ADR already documents as
+  open. The reconciliation sweep (§7 of `architecture.md`) becomes more
+  load-bearing as a result, since it is the only remaining backstop for a
+  duplicate opportunity that slips the ledger. A follow-up decision — either
+  fetch-and-filter client-side on `external_lead_id`, or accept the exposure
+  as documented residual risk — belongs to a later phase, not P04.
 
 ## Related
 
