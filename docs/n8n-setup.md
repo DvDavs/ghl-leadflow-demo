@@ -166,6 +166,12 @@ sanitization working:
 The export ships `RAW` on all eight nodes. Verify after import — a re-picked
 node can silently reset its options.
 
+> **`RAW` does not travel with the data.** It governs how Sheets *stores* the
+> value, not how another program later *reads* it. Export `leads_backup` to CSV
+> or XLSX and open it in Excel or LibreOffice and a leading `=`, `+`, `-`, or
+> `@` is re-parsed as a formula at import time, no matter how it was stored.
+> Anyone exporting this sheet must import the columns as text.
+
 Then **Save and Activate**, and copy the **Production** webhook URL. The Test
 URL expires after 120 seconds and will die mid-demo.
 

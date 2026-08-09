@@ -149,6 +149,20 @@ latter creates an Opportunity whose `name` is literally the unresolved
 bracket text — confirmed live via `get-opportunity` on the first P05 attempt,
 fixed by re-inserting the tokens from the picker.
 
+## Outbound webhook to n8n (P06)
+
+The second GHL workflow — `LeadFlow Demo — Opportunity to n8n` — is built and
+published. Its rebuildable checklist lives in
+[`n8n-setup.md`](n8n-setup.md) §6, together with the declared Custom Data
+contract, because the payload contract and the n8n side that consumes it have
+to be read as one thing. Two constraints from that section belong here too:
+
+- **Workflows remain UI-only.** Confirmed again in P06 — `get-workflow` reads,
+  nothing writes.
+- **Merge values must come from the picker**, never typed. The same defect that
+  bit the `Create Opportunity` Name field in P05 would silently produce a
+  payload whose `opportunityId` is literal bracket text.
+
 ## Related
 
 - [`integration-options.md`](integration-options.md) §1 — MCP capability
