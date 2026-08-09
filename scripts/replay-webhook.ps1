@@ -166,24 +166,32 @@ try {
     $responseBody = $null
 
     try {
+        # -Verbose:$false and -Debug:$false are load-bearing, not tidiness.
+        # [CmdletBinding()] gives this script a -Verbose switch, and
+        # Invoke-WebRequest's verbose stream prints the full request URI. One
+        # standard switch would otherwise defeat the promise in the header
+        # that the URL is never echoed.
+        #
         # -SkipHttpErrorCheck exists only on PowerShell 7+. On 5.1 a non-2xx
         # status raises, and the response is read from the exception instead.
         if ($PSVersionTable.PSVersion.Major -ge 7) {
             $response = Invoke-WebRequest -Uri $url -Method Post -Body $body `
-                -ContentType 'application/json' -SkipHttpErrorCheck
+                -ContentType 'application/json' -SkipHttpErrorCheck `
+                -Verbose:$false -Debug:$false
             $status = [int] $response.StatusCode
             $responseBody = $response.Content
         }
         else {
             $response = Invoke-WebRequest -Uri $url -Method Post -Body $body `
-                -ContentType 'application/json' -UseBasicParsing
+                -ContentType 'application/json' -UseBasicParsing `
+                -Verbose:$false -Debug:$false
             $status = [int] $response.StatusCode
             $responseBody = $response.Content
         }
     }
     catch [Net.WebException] {
-        # Surface the status and body only. The exception message can contain
-        # the request URL, which must never be printed.
+        # Windows PowerShell 5.1. Surface the status and body only: the
+        # exception message embeds the request URL.
         $webResponse = $_.Exception.Response
         if ($null -ne $webResponse) {
             $status = [int] $webResponse.StatusCode
@@ -193,6 +201,13 @@ try {
         else {
             throw 'Request failed before a response was received. Check network reachability.'
         }
+    }
+    catch {
+        # PowerShell 7 raises HttpRequestException, not WebException, for DNS,
+        # TLS and connection failures. Without this arm the original exception
+        # escapes and PowerShell prints its message, which contains the host
+        # and port. Never re-surface $_.Exception.Message here.
+        throw 'Request failed before a response was received. Check network reachability, then re-run.'
     }
 
     Write-Host ''
@@ -215,8 +230,15 @@ try {
 finally {
     # Best-effort scrub. PowerShell strings are immutable and may persist in
     # memory until collected; this removes the references, not the bytes.
-    if ($null -ne $secret) { $secret = $null }
-    if ($null -ne $url) { $url = $null }
-    if ($null -ne $body) { $body = $null }
+    #
+    # $payload and $slot matter as much as $secret: once the secret is
+    # injected it lives at $payload.customData.sharedSecret, and $slot.Parent
+    # holds the very object it was written into. Clearing $secret alone would
+    # leave two live references behind.
+    $secret = $null
+    $url = $null
+    $body = $null
+    $slot = $null
+    $payload = $null
     [GC]::Collect()
 }

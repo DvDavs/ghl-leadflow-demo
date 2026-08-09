@@ -45,9 +45,14 @@ docs/environment.local.md
 # --- Captured webhook payloads ----------------------------------------------
 # GHL's free Outbound Webhook action supports no headers, so the shared secret
 # travels INSIDE the body. Every payload captured from a real delivery is
-# therefore secret-bearing. Only the redacted example fixture is versioned.
-payloads/*.local.json
-payloads/captured*.json
+# therefore secret-bearing.
+#
+# DENY EVERYTHING, then allow back only the redacted example fixtures. An
+# earlier version ignored `*.local.json` and `captured*.json` by naming
+# convention, which meant a capture saved as `payloads/tc03.json` was
+# committable. Naming discipline is not a control; this is.
+payloads/*
+!payloads/*.example.json
 
 # --- Dependencies -----------------------------------------------------------
 node_modules/

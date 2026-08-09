@@ -97,7 +97,9 @@
           "matchingColumns": [],
           "schema": []
         },
-        "options": {}
+        "options": {
+          "cellFormat": "RAW"
+        }
       },
       "id": "log-unauthorized",
       "name": "Log Unauthorized",
@@ -192,7 +194,9 @@
           "matchingColumns": [],
           "schema": []
         },
-        "options": {}
+        "options": {
+          "cellFormat": "RAW"
+        }
       },
       "id": "log-invalid",
       "name": "Log Invalid Payload",
@@ -332,7 +336,9 @@
           "matchingColumns": [],
           "schema": []
         },
-        "options": {}
+        "options": {
+          "cellFormat": "RAW"
+        }
       },
       "id": "log-duplicate",
       "name": "Log Duplicate Event",
@@ -438,7 +444,9 @@
           "matchingColumns": [],
           "schema": []
         },
-        "options": {}
+        "options": {
+          "cellFormat": "RAW"
+        }
       },
       "id": "log-claim",
       "name": "Log Claim",
@@ -487,7 +495,9 @@
           ],
           "schema": []
         },
-        "options": {}
+        "options": {
+          "cellFormat": "RAW"
+        }
       },
       "id": "sheets-leads-backup",
       "name": "Sheets: leads_backup",
@@ -531,7 +541,9 @@
           "matchingColumns": [],
           "schema": []
         },
-        "options": {}
+        "options": {
+          "cellFormat": "RAW"
+        }
       },
       "id": "log-backup",
       "name": "Log Backup Written",
@@ -618,7 +630,9 @@
           "matchingColumns": [],
           "schema": []
         },
-        "options": {}
+        "options": {
+          "cellFormat": "RAW"
+        }
       },
       "id": "log-processed",
       "name": "Log Processed",
@@ -722,7 +736,9 @@
           "matchingColumns": [],
           "schema": []
         },
-        "options": {}
+        "options": {
+          "cellFormat": "RAW"
+        }
       },
       "id": "log-failed",
       "name": "Log Failed",

