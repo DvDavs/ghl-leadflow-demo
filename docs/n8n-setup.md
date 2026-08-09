@@ -338,6 +338,16 @@ without exposing the secret or even its length.
 - **String comparison of the secret is not constant-time.** Over TLS, against a
   network attacker, this is not a practical exposure; it is noted rather than
   claimed to be absent.
+- **A rejected request still causes one write.** "Validated before any write"
+  means before any *business* write — `leads_backup`, the ledger, and GHL are
+  all untouched by an unauthenticated caller. But the rejection itself appends
+  a `run_log` row, so anyone who learns the webhook path can append rows
+  without knowing the secret, growing the sheet and consuming Google API
+  quota. Two things bound the damage: the path is an unguessable UUID, and the
+  row contains **no caller-supplied value**, so it cannot be used for log
+  injection. It is a deliberate trade — an unlogged rejection is invisible,
+  and TC-18 is judged on that row existing. Rate limiting at the edge is the
+  real fix and is `[LATER]`.
 
 ## Fallback — if n8n Variables are unavailable on the plan
 
