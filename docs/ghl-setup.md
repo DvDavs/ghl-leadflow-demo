@@ -246,8 +246,11 @@ Five build rules, each paid for by an earlier defect:
    `inquiry_count` entry at all, resubmitted once and came out at `2` with one
    tag, one note, the same opportunity id and `createdAt`, and no webhook
    ([evidence](evidence/ghl-tests.md#p08c--inquiry_count-null-safety-on-a-pre-p07-contact)).
-   **Still unobserved:** the `Increment` + `Go To` arm. Nothing has taken it
-   since v13 shipped, so TC-03's pass covers v12 only until it is re-run.
+   **The other arm is observed too**, by TC-03's re-run against v13 on a fresh
+   fixture whose `inquiry_count` was already `1`: it came out at `2`, which only
+   `+1` on an existing value explains
+   ([evidence](evidence/ghl-tests.md#tc-03--genuine-re-inquiry-same-person-different-intent)).
+   Both sides of the branch are now evidenced, on the artifact that is deployed.
 4. **The stage pull-back is gated by a second `Find Opportunity`, not by an
    If/Else on stage.** Same documentation constraint as above, and it reuses a
    primitive already trusted. Unconditionally setting `Contacting` would drag
@@ -257,9 +260,12 @@ Five build rules, each paid for by an earlier defect:
    protects a `Qualified` or `Appointment` deal — was **observed in P08C**:
    `Marisol Vega`'s opportunity sat in `New Lead`, the second
    `Find Opportunity` returned `Not Found`, and `lastStageChangeAt` came back
-   unchanged. Both arms are now observed, but only on the `empty` path of the
-   v13 `If/Else` — nothing has yet reached this step through the `Increment` +
-   `Go To` arm.
+   unchanged. Both arms are now observed on the `empty` path of the v13
+   `If/Else`, **and the `Found` arm is now observed on the `Increment` path as
+   well**: TC-03's v13 re-run drifted its opportunity to `Follow-up`, took the
+   increment, and came back to `Contacting`. That stage move is also the only
+   evidence the **`Go To`** works — the increment side reaches this step through
+   it and no other way.
 5. **Every merge value comes from the picker**, never typed. Typing the
    placeholder text produces literal bracket characters — the P05 defect,
    twice paid for.

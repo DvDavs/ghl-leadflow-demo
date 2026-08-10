@@ -179,7 +179,9 @@ not exercise the re-inquiry branch (TC-03).
 
 ## TC-03 — Genuine re-inquiry, same person, different intent
 
-**Status: PASS**
+**Status: PASS — re-run against GHL v13 on 2026-08-10.** The v12 run below is
+retained in full; the v13 re-run that supersedes it, and the arm it finally
+traverses, are recorded after it.
 
 **Input.** Two sequential submissions of the live form by one person.
 Submission 1 establishes the Contact and an open Opportunity. Submission 2
@@ -237,6 +239,87 @@ action. **Falsifiable prediction, recorded before the run and held:** n8n
 execution count stayed at **12** — no opportunity created means no webhook, so
 the re-inquiry leaves no `leads_backup` row, exactly as designed and documented.
 Observed against published workflow **version 12** (was 9 before the P07 edit).
+
+### Re-run against v13 — the `Increment` + `Go To` arm, finally traversed
+
+**Why it was needed.** v13 replaced the bare `Math Operation` on the
+`Opportunity Found` branch with an `If/Else`, so the run above proved a shape
+that no longer exists. Of the two runs that had touched v13, only one had an
+identified arm — `Marisol Vega` took the **`empty`** side — and TC-02b's
+[deliberately claims nothing](#tc-02b--duplicate-form-submission-same-person-submits-twice)
+about which arm it took. The `Increment` arm and the `Go To` that rejoins the
+stage gate had been traversed by nothing that could be named. The whole point of
+this re-run was a contact whose `inquiry_count` is **already set, and read as
+set before the run**, so the `If/Else` is forced down the other side and the
+result is attributable.
+
+**Fixture — brand new, and proven empty first.** `Rafael Okonkwo`,
+`rafael.okonkwo@example.com`, `+1 202-555-0173`. Before submission 1, three
+searches returned `total: 0` — by email, by surname, and by phone — plus zero
+opportunities. The phone was chosen only after `+1 202-555-0142` came back
+already bound to `Marisol Vega`; a phone collision would have merged the
+fixture into an existing contact and destroyed the test silently.
+
+**Submission 1, `04:13:43Z`** — browser-driven, `Real Estate`, first message.
+Contact `9YYMaxKvwX0pEJweE65r` created at `04:13:43.031Z`; one Opportunity
+`yVqNs2DDqjaxGT0vfb5G` — `Rafael Okonkwo - Real Estate`, `status=open`, stage
+**`New Lead`** (`2de64cba…`), `createdAt 04:13:47.025Z`, `source=GHL Demo Form`.
+`inquiry_count = 1`, **`tags: []`**, and **zero notes** — read, not assumed, so
+that every amplification artifact below is provably submission 2's. n8n ingress
+execution **78** started at `04:13:51.816Z`, 4.8 s after the Opportunity, taking
+the count 25 → 26. Only the execution record was read — status `success`, mode
+`webhook`, timings; its node detail was **not** opened, so this run makes no
+claim about the `leads_backup` row beyond the fact that an execution ran.
+
+**Drift step, `04:14:50Z`** — the Opportunity moved to **`Follow-up`**
+(`ab8d09dd…`) via `update-opportunity`, so the pull-back arm is exercised rather
+than assumed. `createdAt` unchanged.
+
+**Submission 2, `04:15:21Z`** — same email, same phone, service `Mortgage`
+instead of `Real Estate`, a different message.
+
+| Assertion | Observed |
+|---|---|
+| One contact | `total: 1` — same `9YYMaxKvwX0pEJweE65r`, `dateAdded` still `2026-08-10T04:13:43.031Z` |
+| One opportunity, same identity | `total: 1` — `yVqNs2DDqjaxGT0vfb5G`, `createdAt` still `04:13:47.025Z`. No second was created and none was recreated |
+| **`inquiry_count` `1 → 2`** | `{"id":"5cawDbnm…","value":2}` — **this is the `Increment` arm** (see the note below on why that is claimable here and was not in TC-02b) |
+| `repeat-inquiry` | `tags: ["repeat-inquiry"]` |
+| Exactly one note, carrying submission **2** | **0 → 1** — `vQunpCWiDE3aqt5BLHfE` at `04:15:25.335Z`, title `Repeat Inquiry`, body `Service Interest: Mortgage`, submission 2's message verbatim, `Received at: 8/9/2026 10:15 PM`. One note total confirms submission 1 wrote none |
+| Submission 2's own values landed | `service_interest = "Mortgage"`, `lead_message` = submission 2's text |
+| Status untouched | `status=open`, `lastStatusChangeAt` still `04:13:47.025Z` |
+| **`Follow-up` → `Contacting`** | `pipelineStageId` `bcd8e39a…`, `lastStageChangeAt 04:15:29.776Z` — pulled back from the `Follow-up` set 39 s earlier |
+| Exactly one n8n execution in the whole scenario | Ingress count **25 → 26**, latest id **78** at `04:13:51Z` — submission 1's `Opportunity Created`. Nothing after `04:15`. The re-inquiry fired **no** webhook |
+| Exactly two form submissions | `69b43ecc…` at `04:13:43.412Z` and `a740bccb…` at `04:15:21.573Z`, both bound to the same `contactId` |
+
+**Why the arm is attributable here, when TC-02b's was not.** TC-02b reached
+`inquiry_count = 2` from what looked like the same starting state and
+[refused to claim an arm](#tc-02b--duplicate-form-submission-same-person-submits-twice),
+correctly: its two submissions were 4.3 s apart, and the `1` is written by the
+`Not Found` branch *after* `Create Opportunity`, so whether the field was
+already `1` or still empty when submission 2 evaluated the condition is
+genuinely racy. The stored `2` cannot settle it. **This run removes the race
+rather than arguing past it.** The gap is 98 s, not 4.3 s, and `inquiry_count`
+was **read live as `1`** at `04:14` — before the drift step and 90 s before
+submission 2. A field holding `1` is not empty, and the `empty` arm is the only
+one that writes a literal `2`; from a field that demonstrably held `1`, only
+`+1` reaches `2`. The distinguishing evidence is the **pre-state**, read, not
+the output value.
+
+**What the stage move proves, and it is the point of the re-run.** The
+`Increment` arm does not reach `Recheck Open Opportunity` by falling through —
+it gets there through a **`Go To`**, the one construct in either GHL workflow
+whose behaviour had rested on nothing but the build report and the published
+version number. The stage came back from `Follow-up` to `Contacting`, so
+execution reached the second `Find Opportunity` **after** taking the increment
+side. `Go To` is now observed, not asserted. Note what carries which half: the
+stage move alone would not identify the arm — both arms converge on that same
+gate — and the pre-state alone would not prove the `Go To` fired. The two
+together do.
+
+**What this run still does not prove.** The duplicate-opportunity guard, exactly
+as in the v12 run and in TC-02b: the `Found` path never reaches
+`Create Opportunity`, so the single opportunity is explained by **routing**.
+Observed against published workflow **version 13**.
 
 ---
 
@@ -300,8 +383,10 @@ produced `2`.
 stage alone, `lastStageChangeAt` unchanged. That is the correct behaviour and
 it is the `Not Found` arm, which had been designed-but-unobserved since P07; it
 is now observed, on the `empty` path only. And the **Go To** on the `else` arm
-is unexercised: no run has yet entered the `Increment` branch since v13
-shipped.
+was unexercised at the time of this run: nothing had yet entered the `Increment`
+branch since v13 shipped. **TC-03's re-run closed that same night** — see
+[TC-03](#tc-03--genuine-re-inquiry-same-person-different-intent), where
+`inquiry_count` went `1 → 2` and the stage still came back from `Follow-up`.
 
 **`Marisol Vega` is consumed** as a null-safety fixture — her `inquiry_count`
 is now `2`. Re-running this needs another pre-P07 contact with an open
@@ -320,6 +405,7 @@ deployed.
 |---|---|---|
 | TC-01, execution 6 | 05:30 | `b162ad3f` |
 | **TC-03, both submissions** | 17:21 and 21:49 | n8n unchanged (`cellFormat: RAW` fix, no P07 edit); **GHL** `Form to Opportunity` **v12** |
+| **TC-03 — re-run** | 2026-08-10 04:13 and 04:15 | **GHL `Form to Opportunity` v13.** Two browser-driven submissions on the new fixture `Rafael Okonkwo`, 98 s apart, with an MCP drift step to `Follow-up` between them. The first run against v13 to take the **`Increment`** arm and therefore the only observation of the **`Go To`**. n8n active `4ab773e2` and untouched by submission 2 — the count moved once, on submission 1 |
 | **TC-02b — re-run** | 2026-08-10 03:29 | **GHL `Form to Opportunity` v13.** Two browser-driven submissions of the public form, 4.3 s apart. The original pre-P07 run against **v9 with `Allow Re-entry` off** is retained above for its attribution lesson and covers nothing deployed |
 | **P08C `inquiry_count` null safety** | 2026-08-10 03:21 | **GHL v13**, the first run against it. n8n untouched and unexercised — the whole point is that a re-inquiry fires no webhook |
 | **TC-01 — fully re-covered by TC-02b's submission 1** | 2026-08-10 03:29 | TC-01's own run (05:30 on 2026-08-09) predates both GHL v12 and v13, and faced the same demotion as TC-02b. It is **not** demoted, and the reason is narrower than "it still passes". TC-01's GHL-side assertions ride on the `Not Found` branch, which neither v12 nor v13 touched, and TC-02b's first submission re-observed both at **v13**: a new Contact, and an Opportunity created at `New Lead`. Its n8n-side assertions were re-observed in the same run, on the current active version `4ab773e2` — **execution 72** ran `Sheets: leads_backup` once with one item (`lastAction=backup_written`, `status=processed`, `attempt=1`), `Ledger: Complete` wrote ledger row id 19 `status=completed`, and the last node executed was `Respond 200 processed` with `correlationId=n8n:72`, `outcome=processed`, `eventId=ghl:opportunity-created:vX04hv8q…`. This supersedes the earlier partial re-coverage by TC-03's submission 1, where execution 12 was recorded only as `status=success` with no node record captured |
