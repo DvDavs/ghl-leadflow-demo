@@ -16,6 +16,25 @@ did so.
 
 ## Current milestone
 
+**Milestone 8 — the interview demo (P09A, in progress). The golden path was
+rehearsed twice, unassisted, and the script and one-pager exist. The offline
+safety net is half built.**
+
+Two full golden paths ran on fresh non-colliding fixtures with no human filling
+a form and no human correcting anything: **one Contact, one Opportunity at
+`New Lead`, `inquiry_count = 1`, one n8n execution answering `200 processed`, a
+ledger row `completed`, and exactly one `leads_backup` row — read back from the
+sheet, not deduced — in about 17 seconds each.** The record, the minute-by-minute
+script, the per-system fallbacks and the 10-minute pre-interview checklist are in
+[`docs/demo/runbook.md`](docs/demo/runbook.md); the leave-behind summary is
+[`docs/demo/one-page.md`](docs/demo/one-page.md).
+
+**What is not done is the offline half**, and the reason is one fact: the
+Playwright browser profile is authenticated to **GoHighLevel only**. The CRM
+screenshot exists; the n8n, Sheets and reconciliation captures and the recorded
+video all need sessions that profile does not have, and no credential was
+improvised to get them. See [`assets/demo/`](assets/demo/).
+
 **Milestone 7 — failure, retry and human handoff (P08, closed out by P08B and
 P08C). Complete: the retry half and reconciliation are both built, published,
 active and evidenced, and the two GHL-side regression gates P08 could not reach
@@ -167,6 +186,7 @@ a demo. Cleanup pending an explicit decision; nothing has been deleted.
 | **Twelve fictional diagnostic contacts pollute the demo location.** All twelve have a `leads_backup` row: **five fired their webhook normally** (Valeria Cruz, the `=1+1 Testcase` fixture, Priya Chandran, `Ines Marchetti` on execution 72, and `Rafael Okonkwo` on execution 78) and **seven were recovered by the sweep** on 2026-08-10 — six on its first run, then `Noa Feldman` on the re-run — so those seven carry `lastAction=reconciled` | [evidence](docs/evidence/reconciliation-tests.md) |
 | **P08C consumed two more fixtures and added one contact.** `Marisol Vega` is no longer null-safety test data — her `inquiry_count` is `2`. `Ines Marchetti` is new (TC-02b), has an open opportunity and `inquiry_count = 2`, and is the first contact in this location created by two form submissions. Six pre-P07 contacts still qualify as null-safety fixtures: `David Demo`, `Sofia Bennett`, `Camila Torres`, `Camila Torres 02`, `Tobias Lind`, `Valeria Cruz` | [evidence](docs/evidence/ghl-tests.md#p08c--inquiry_count-null-safety-on-a-pre-p07-contact) |
 | **TC-03's re-run added one more contact.** `Rafael Okonkwo` (`+1 202-555-0173`) has an open opportunity `Rafael Okonkwo - Real Estate` sitting in `Contacting`, `inquiry_count = 2`, the `repeat-inquiry` tag, one note, and one successful ingress execution (78) from submission 1 only — the sheet row is deduced from that execution, not read back. Fictional, form-created, `source = GHL Demo Form` — noise in a demo board, nothing more | [evidence](docs/evidence/ghl-tests.md#tc-03--genuine-re-inquiry-same-person-different-intent) |
+| **P09A's two rehearsals added two more contacts.** `Anouk Delacroix` (Real Estate) and `Emeka Nwosu` (Business Loan), both `+1 415-555-01xx` — deliberately outside the `202-555-01xx` block every earlier fixture uses, so neither can collide. Each has one open opportunity at `New Lead`, `inquiry_count = 1`, one ingress execution and one `leads_backup` row. Fictional, form-created, `source = GHL Demo Form`. They are the two cards a demo board will show first | [runbook](docs/demo/runbook.md) |
 | **P08 fixtures sit in the durable backup.** `p08-regress-alpha`, `p08-tc10b-transient` and `p08-tc19-formula` have `leads_backup` rows; `p08-tc12-persistent` and `p08-tc12b-persistent` are terminal `failed` with none. All fictional, all carrying `source = P08 Internal Test Harness` — the column to filter on before a demo | [operations](docs/n8n/operations.md) §6 |
 | **The trial location's owner First/Last Name is still real** — not committed to git, not part of the interview-facing fixture, so not blocking, but still open after three UI correction attempts | [history](docs/history/ghl-leg-p05-p07.md) |
 
@@ -191,9 +211,13 @@ All 26, including the three ADRs, in
 
 ## Next 3 actions
 
-1. **Build the interview demo and fallback assets (#12).** The matrix is as
-   strong as it is going to get without a new prerequisite; what is missing now
-   is the narrative and the offline safety net, not another test.
+1. **Finish the demo fallback assets (#12, still In Progress).** The script,
+   the one-pager and two unassisted rehearsals are done — see
+   [`docs/demo/runbook.md`](docs/demo/runbook.md). What is left is the recorded
+   video and four of the five screenshots, all blocked on the same thing: the
+   Playwright browser profile is signed in to **GoHighLevel only**, and n8n
+   Cloud and Google both redirect it to a sign-in page. One manual step
+   unblocks all of it.
 2. **Decide whether the duplicate-opportunity guard is worth chasing further.**
    TC-02b established the window is under 1.5 s and that the browser cannot
    get inside it. The honest options are to leave it `[DOCUMENTED]` and say so
@@ -208,7 +232,13 @@ All 26, including the three ADRs, in
 
 ## Demo readiness
 
-**PARTIAL.**
+**PARTIAL — and now rehearsed rather than assumed.**
+
+**P09A ran the golden path twice, unassisted, and it held both times** — see
+the milestone section above and [`docs/demo/runbook.md`](docs/demo/runbook.md).
+The script, the fallbacks and the one-pager exist. **The offline safety net does
+not yet**: one of five screenshots is captured, and the recorded video is not,
+because the automation browser is signed in to GoHighLevel only.
 
 **The golden path is demonstrable end to end**, and so is the reliability half.
 A live form submission produces one Contact, one Opportunity, one backup row and

@@ -31,6 +31,8 @@ need instead of loading all of it.
 | How do I rebuild the GHL leg? | [`ghl-setup.md`](ghl-setup.md) |
 | What can the build machine do? | [`environment.md`](environment.md) |
 | What do GHL and n8n actually support? | [`integration-options.md`](integration-options.md) |
+| How do I run the interview demo? | [`demo/runbook.md`](demo/runbook.md) |
+| What is the one-page summary? | [`demo/one-page.md`](demo/one-page.md) |
 | How did we get here? | [`history/`](history/) |
 
 ## Evidence
@@ -55,6 +57,14 @@ Observed output for every executed scenario. These files are the detail behind
 | [`n8n/operations.md`](n8n/operations.md) | Publishing vs saving, the node graph, the response contract, the retry budget, manual replay, the reconciliation sweep and its credential, known limitations |
 | [`n8n/testing.md`](n8n/testing.md) | Per-scenario procedures and the internal test harness |
 | [`n8n/troubleshooting.md`](n8n/troubleshooting.md) | Permanent 401s, a fix that looks applied but is not, a `failed` row nobody was told about |
+
+## Demo
+
+| File | Contents |
+|---|---|
+| [`demo/runbook.md`](demo/runbook.md) | The rehearsal record, the 5–7 minute script minute by minute, the phrases that state each limitation out loud, the fallback for every system that can fail, and the 10-minute pre-interview checklist |
+| [`demo/one-page.md`](demo/one-page.md) | The leave-behind: problem, architecture, defensible decisions and what each one costs, evidence, risks and limitations |
+| [`../assets/demo/`](../assets/demo/) | Sanitized fallback screenshots, their capture rules, and the four captures still blocked on a browser session |
 
 ## Design and decisions
 
