@@ -3,7 +3,7 @@
 A design-first lead pipeline connecting a lead source, a **GoHighLevel** CRM
 location, an **n8n** automation layer, and a **Google Sheets** backup.
 
-> ## Status: golden path live, reliability evidenced, reconciliation running
+> ## Status: all P0 work complete — golden path live, reliability evidenced, reconciliation running, demo rehearsed
 >
 > The GHL → n8n → Sheets flow runs end to end against live GoHighLevel and n8n
 > Cloud resources. A downstream failure retries on a bounded ladder and
@@ -11,6 +11,12 @@ location, an **n8n** automation layer, and a **Google Sheets** backup.
 > handoff. **A webhook that never arrives is recovered too**: a reconciliation
 > sweep runs on a schedule against a read-only GHL credential, and TC-17 passes
 > against it — recovery, idempotence and log accuracy.
+>
+> **Every P0 issue is closed.** The interview demo was rehearsed twice
+> unassisted, and its offline fallback exists: five sanitized captures plus a
+> captioned walkthrough video in [`assets/demo/`](assets/demo/), with the script
+> and per-system fallbacks in [`docs/demo/runbook.md`](docs/demo/runbook.md).
+> What remains is P1 and unstarted.
 >
 > Scenario coverage is not summarized here on purpose, because a number in a
 > banner goes stale. **[`TEST_CASES.md`](TEST_CASES.md) is the status matrix and

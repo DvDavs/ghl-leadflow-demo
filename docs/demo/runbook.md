@@ -104,7 +104,8 @@ broke, switch, keep going. Narrating a recovery is not a loss.
 
 | If this breaks | Symptom | Do this |
 |---|---|---|
-| **Internet / any SaaS session** | A tab shows a sign-in screen | Stop live driving. Switch to the screenshots in `assets/demo/` and the evidence files, and say: "I'll show you the recorded run — the live one needs a session I've just lost." |
+| **Internet / any SaaS session** | A tab shows a sign-in screen | Stop live driving. Play `assets/demo/06-fallback-evidence-walkthrough.mp4` — 2:16, the whole argument — and say: "I'll show you the recorded evidence; the live run needs a session I've just lost." Call it what it is: captioned captures, not a screen recording. |
+| **Everything visual is gone but you can still talk** | Screen share survives, every SaaS tab is dead | The video is the floor. It carries lead → webhook → correlation → exhausted retry → reconciliation, and states the limitations itself, so you can narrate over it instead of reconstructing from memory. |
 | **The public form** | Submit spins past ~15 s, or Turnstile loops | Do not resubmit — a second submit on a cleared challenge produces a real second submission. Switch to the CRM and open a lead created in rehearsal; the whole downstream story is identical. |
 | **The form resumes stale data** | "Submission in progress" prompt appears | Click **Start over**. Never **Continue**. |
 | **The CRM board renders blank** | Sidebar and header paint, the pipeline area is empty | Full page reload — not an in-app tab click — and wait. Under automation the board took ~25 s and collapsed again afterwards; a human reload is usually enough. If it stays blank, use the CRM's Contacts list instead, which is a different render path. |
@@ -155,13 +156,18 @@ nothing is already open.
 **Assets (1 min)**
 
 10. Confirm `assets/demo/` opens and the screenshots are current, and have
-    `docs/evidence/` and `one-page.md` reachable in one click.
+    `docs/evidence/` and `one-page.md` reachable in one click. **Open
+    `06-fallback-evidence-walkthrough.mp4` in a player and leave it paused on
+    the title card** — a fallback you have to go hunting for during a failure is
+    not a fallback.
 
 ---
 
 ## Related
 
 - [`one-page.md`](one-page.md) — the leave-behind summary
+- [`../../assets/demo/`](../../assets/demo/) — the five fallback captures and
+  the 2 min 16 s walkthrough video, with the rules they were held to
 - [`../../TEST_CASES.md`](../../TEST_CASES.md) — the status matrix every claim maps to
 - [`../../PROJECT_STATE.md`](../../PROJECT_STATE.md) — current state and open risks
 - [`../evidence/`](../evidence/) — observed output behind every passing row

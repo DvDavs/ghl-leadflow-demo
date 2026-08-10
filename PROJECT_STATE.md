@@ -16,9 +16,10 @@ did so.
 
 ## Current milestone
 
-**Milestone 8 — the interview demo (P09A, in progress). The golden path was
-rehearsed twice, unassisted, and the script and one-pager exist. The offline
-safety net is half built.**
+**Milestone 8 — the interview demo (P09A, closed out by P09B). Complete, and it
+closes the last P0. The golden path was rehearsed twice unassisted, the script
+and one-pager exist, all five captures are sanitized, and the offline fallback
+video is built from those captures.**
 
 Two full golden paths ran on fresh non-colliding fixtures with no human filling
 a form and no human correcting anything: **one Contact, one Opportunity at
@@ -37,13 +38,23 @@ and its 1-recovered / 9-already-known split. Record identifiers are redacted to
 eight characters **in the pixels**, holding the line that no full 20-character
 record id has ever been committed to this repository in any form.
 
-**Only the video is outstanding, and no login will fix it.** Playwright records
-video as a browser-*context creation* option; the MCP server owns context
-creation and exposes no recording tool, so a session already in flight cannot
-start recording and a fresh recorded context would start logged out of
-everything. It needs a recording-enabled MCP configuration or a human with a
-screen recorder. Nothing was faked to fill the gap. See
-[`assets/demo/`](assets/demo/).
+**The offline safety net is now complete.**
+`assets/demo/06-fallback-evidence-walkthrough.mp4` is **2 min 16 s at
+1920×1080, silent, 3.4 MB**, assembled with FFmpeg from those five captures and
+nothing else. It is a captioned still sequence and says so on its own title
+card; it states which captures came from the rehearsals and which from earlier
+failure and recovery runs; it holds the redaction bars at full size; and it
+closes on the four limitations that have to be said out loud. An adversarial
+review caught the closing card claiming all five captures came from the two
+rehearsals, and it was corrected before the file was committed.
+
+**There is still no *continuous screen recording*, and the reason is
+unchanged.** Playwright records video as a browser-*context creation* option;
+the MCP server owns context creation and exposes no recording tool, so a session
+already in flight cannot start recording and a fresh recorded context would
+start logged out of everything. Producing one needs a recording-enabled MCP
+configuration or a human with a screen recorder. Nothing was faked to fill the
+gap — no frame in the video is a mock-up. See [`assets/demo/`](assets/demo/).
 
 **Milestone 7 — failure, retry and human handoff (P08, closed out by P08B and
 P08C). Complete: the retry half and reconciliation are both built, published,
@@ -115,6 +126,14 @@ Per-row status, version coverage and evidence links:
 ## Issues and project board
 
 The GitHub Project board (*GHL Leadflow Demo Sprint*) is the source of truth.
+
+**Every P0 issue is closed.** **#12 — *Prepare interview demo and fallback
+assets*** was the last one, and P09B closed it on the fallback video. All four
+of its acceptance criteria are met on observed evidence: the demo ran end to end
+twice unassisted, the fallback assets exist and are current, every capture uses
+fictional data on a throwaway sub-account, and the limitations are stated out
+loud — in the runbook, on the one-pager, and on the video's own closing cards.
+Everything still open is P1: **#13–#17**, none started.
 
 **#18 — *Fix reconciliation run_log triplication*** was opened for the defect
 TC-17 found, worked, and closed the same day. **#10 was not reopened**: it had
@@ -221,23 +240,21 @@ All 26, including the three ADRs, in
 
 ## Next 3 actions
 
-1. **Record the video and close #12.** Everything else the issue asks for is
-   done: the script, the one-pager, two unassisted rehearsals and all five
-   sanitized screenshots — see [`docs/demo/runbook.md`](docs/demo/runbook.md)
-   and [`assets/demo/`](assets/demo/). The video needs a recording-enabled
-   Playwright context or a human with a screen recorder; it is the only thing
-   holding the issue open.
-2. **Decide whether the duplicate-opportunity guard is worth chasing further.**
+1. **Decide whether the duplicate-opportunity guard is worth chasing further.**
    TC-02b established the window is under 1.5 s and that the browser cannot
    get inside it. The honest options are to leave it `[DOCUMENTED]` and say so
    in the interview, or to find a submission path that bypasses Turnstile —
    which is a different test from the one the matrix describes.
-3. **Clean up the fixture noise**: the orphaned `retry_scheduled` ledger row,
+2. **Clean up the fixture noise**: the orphaned `retry_scheduled` ledger row,
    the `failed` row with no `needs_human` row, and the `p08-` rows in
    `leads_backup`. Still pending an explicit decision; nothing has been deleted.
    The unexplained Sheets post-write failure sits behind this — the sweep
    converges under it, so it costs correctness nothing, but it is the one thing
    in the reliability story with no named cause.
+3. **Open P1.** Every P0 issue is now closed. What remains is #13–#17 —
+   appointment lifecycle, four-service routing, the Business Systems Master
+   Inventory, bounded AI enrichment, and the final adversarial interview review.
+   None of them is started.
 
 ## Demo readiness
 
@@ -245,9 +262,9 @@ All 26, including the three ADRs, in
 
 **P09A ran the golden path twice, unassisted, and it held both times** — see
 the milestone section above and [`docs/demo/runbook.md`](docs/demo/runbook.md).
-The script, the fallbacks and the one-pager exist. **The offline safety net does
-not yet**: one of five screenshots is captured, and the recorded video is not,
-because the automation browser is signed in to GoHighLevel only.
+The script, the fallbacks and the one-pager exist. **The offline safety net now
+exists too**: five sanitized captures and a 2 min 16 s captioned fallback video
+built from them, so a lost session ends the *live* run and not the demo.
 
 **The golden path is demonstrable end to end**, and so is the reliability half.
 A live form submission produces one Contact, one Opportunity, one backup row and

@@ -64,7 +64,7 @@ Observed output for every executed scenario. These files are the detail behind
 |---|---|
 | [`demo/runbook.md`](demo/runbook.md) | The rehearsal record, the 5–7 minute script minute by minute, the phrases that state each limitation out loud, the fallback for every system that can fail, and the 10-minute pre-interview checklist |
 | [`demo/one-page.md`](demo/one-page.md) | The leave-behind: problem, architecture, defensible decisions and what each one costs, evidence, risks and limitations |
-| [`../assets/demo/`](../assets/demo/) | Sanitized fallback screenshots, their capture rules, and the four captures still blocked on a browser session |
+| [`../assets/demo/`](../assets/demo/) | The five sanitized fallback captures, the captioned walkthrough video built from them, and the capture and redaction rules both are held to |
 
 ## Design and decisions
 

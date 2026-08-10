@@ -1,9 +1,10 @@
 # Demo assets
 
 Fallback captures for the live walkthrough in
-[`docs/demo/runbook.md`](../../docs/demo/runbook.md). Every file here is a page
-screenshot with **no browser chrome and therefore no URL bar**, taken against a
-throwaway sub-account with fictional data only.
+[`docs/demo/runbook.md`](../../docs/demo/runbook.md). Every screenshot here is a
+page capture with **no browser chrome and therefore no URL bar**, taken against a
+throwaway sub-account with fictional data only. The one video is assembled from
+those same five captures and adds no imagery of its own.
 
 ## Capture rules
 
@@ -50,22 +51,55 @@ full text would show in the formula bar. No cell was opened for editing and no
 column was resized — widening a column to fit the text would have been a write
 to a shared document.
 
-## Not captured — the video
+## The video
 
-**Blocked on something a login does not fix.** Playwright records video as a
-*browser-context creation option*. The MCP server owns context creation and
-exposes no recording tool, so a session already in flight cannot start
-recording, and opening a fresh recorded context would start with no cookies —
-logged out of everything, which defeats the purpose. Producing it needs either
-a recording-enabled MCP configuration or an ordinary screen recorder driven by
-a human. Tracked for **P09B**.
+`06-fallback-evidence-walkthrough.mp4` — 1920×1080, H.264 High, `yuv420p`,
+faststart, **no audio**, **2 min 16 s**, 3.4 MB. Container metadata stripped
+(`-map_metadata -1`).
 
-Nothing was faked to fill the gap. **No screenshot in this directory is a
-mock-up, and none will be** — a rendered stand-in that looks like a product
-screenshot would be indistinguishable from evidence, and this repository does
-not do that.
+It is the five captures above, sequenced in narrative order and captioned: a
+lead lands in the CRM, n8n processes the webhook, the backup correlates the
+event, retry exhausts into `needs_human`, and reconciliation recovers the one
+opportunity it had never seen while skipping the nine it already knew. It closes
+on the four limitations that have to be said out loud — sequential evidence and
+no concurrency claim, the duplicate-opportunity guard configured but never
+exercised, re-inquiries producing no downstream event, and fictional fixtures on
+a trial sub-account.
 
-## A note on the browser, because it was misdiagnosed once
+**It is a captioned still sequence, and its own title card says so.** It is not
+a screen recording and does not pretend to be one: nothing moves, no cursor
+travels, no interface is simulated or re-drawn. Every evidence pixel comes from
+the five PNGs above at full size — no zoom or crop that could hide that a
+redaction happened, and the bars stay visible *as* bars.
+
+**Provenance is on the card, not implied.** Captures 1–3 are the rehearsed
+golden path; captures 4 and 5 are earlier recorded failure and recovery runs.
+An earlier draft of the closing card claimed all five came from the two
+rehearsals — an adversarial review caught it and it was corrected before the
+file was committed.
+
+**Reach for it when the live run dies** — a lost SaaS session, a CRM board that
+renders blank, an execution list that stays empty. It carries the whole argument
+in about two minutes.
+
+Built with FFmpeg from those five PNGs and nothing else: no external asset, no
+stock footage, no mock-up. Verified after encoding by probing the stream,
+extracting frames across the full timeline, reading every caption and header
+band, inspecting the redacted regions at 2–3× zoom, scanning the container for
+sensitive strings, and a full decode pass.
+
+## Nothing here is a mock-up
+
+**No screenshot in this directory is a mock-up, and none will be** — a rendered
+stand-in that looks like a product screenshot would be indistinguishable from
+evidence, and this repository does not do that. The video inherits the rule: it
+sequences real captures, it does not draw new ones.
+
+## Why there is no continuous screen recording
+
+The note below is why the fallback is a still sequence rather than a screen
+capture of a live run. It was misdiagnosed once, so the cause is recorded rather
+than the symptom.
 
 The Playwright MCP server drives **its own browser instance with its own
 profile**. Signing in to a service in an everyday Chrome window does nothing
