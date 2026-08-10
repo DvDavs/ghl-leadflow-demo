@@ -3,14 +3,18 @@
 A design-first lead pipeline connecting a lead source, a **GoHighLevel** CRM
 location, an **n8n** automation layer, and a **Google Sheets** backup.
 
-> ## Status: not implemented
+> ## Status: golden path live, reliability evidenced, reconciliation blocked
 >
-> **There is no working end-to-end flow.** No GoHighLevel, n8n, or Google
-> resource has been created. No test case has passed. This repository currently
-> contains an architecture, a set of decision records, and a test contract —
-> written deliberately *before* implementation.
+> The GHL → n8n → Sheets flow runs end to end against live GoHighLevel and n8n
+> Cloud resources. **Nine of twenty test scenarios pass** against the deployed
+> artifacts (TC-01, TC-02, TC-03, TC-09–TC-12, TC-18, TC-19). A downstream
+> failure retries on a bounded ladder and converges on one record, or reaches a
+> logged terminal state with a human handoff. **TC-17 — reconciliation — is the
+> next closure**: the sweep is built and published, but it cannot run without a
+> read-only GHL credential it does not have yet.
 >
-> Current state: [`PROJECT_STATE.md`](PROJECT_STATE.md).
+> Current state: [`PROJECT_STATE.md`](PROJECT_STATE.md) · Test matrix:
+> [`TEST_CASES.md`](TEST_CASES.md).
 
 ---
 
@@ -37,20 +41,25 @@ Four things go wrong in practice, and none of them are exotic:
 
 A demo that only shows the happy path proves none of this was handled.
 
-## What this demo aims to show
+## What this demo shows
 
 A pipeline that stays correct when the inputs misbehave:
 
-- **Duplicate events produce exactly one record.** Identity is anchored on an
-  `externalLeadId`, decided before the first write rather than patched
-  afterwards.
-- **Invalid input is rejected loudly**, before any partial CRM write, with the
-  specific failing field named.
+- **Duplicate deliveries produce no second record.** On the demo's GHL-native
+  path, GHL creates the Contact and Opportunity *before* n8n sees anything, so
+  identity cannot be decided before that first write. The dedup ledger instead
+  keys each delivery on `ghl:opportunity-created:<opportunityId>`, derived
+  after the CRM write — verified by TC-02. `externalLeadId` is reserved for a
+  future direct-ingress source where n8n would gate the CRM write itself.
+- **Invalid input is rejected loudly**, before any business write, with the
+  specific failing field named — verified by TC-09.
 - **Transient failures retry** and still converge on one downstream record;
-  exhausted retries reach a terminal, visible state rather than vanishing.
+  exhausted retries reach a terminal, visible state rather than vanishing —
+  verified by TC-10, TC-11, TC-12.
 - **Every lead carries a correlation id** through every hop, so its path is
   reconstructable from logs.
-- **Uncertain cases reach a human** instead of being guessed at.
+- **Uncertain cases reach a human** instead of being guessed at — designed,
+  blocked on the same missing prerequisites as TC-15/TC-16.
 
 ## The golden path
 
@@ -62,6 +71,15 @@ Lead source  →  GoHighLevel contact  →  Opportunity in pipeline
              →  Validate → check idempotency → enrich
              →  Google Sheets backup  +  notification
 ```
+
+| Hop | State |
+|---|---|
+| Lead source → GHL Contact → Opportunity → Pipeline | **Live** (P05/P07) |
+| GHL Workflow → outbound webhook | **Live** — `Form to Opportunity` v12 |
+| n8n ingress: validate → dedup → backup | **Live**, evidenced by TC-01, TC-02, TC-09, TC-18, TC-19 |
+| Downstream failure → retry → terminal handoff | **Live**, evidenced by TC-10, TC-11, TC-12 |
+| AI enrichment | **Designed**, not built |
+| Reconciliation sweep | **Built and published, inactive** — blocked on a credential (TC-17) |
 
 Four-service routing, appointment booking, and AI enrichment are designed for
 and diagrammed, but they are **not** in the first path. They are added only once
@@ -105,7 +123,7 @@ the test that resolves ambiguous cases are in
 
 **All data in this repository is fictional.** No real customer, contact, phone
 number, email address, or business record appears anywhere, in documentation,
-diagrams, fixtures, or test data. The demo will run against a test location with
+diagrams, fixtures, or test data. The demo runs against a test location with
 invented leads.
 
 No credentials are stored here. [`.env.example`](.env.example) lists variable
@@ -118,7 +136,7 @@ No credentials are stored here. [`.env.example`](.env.example) lists variable
 | Document | What it answers |
 |---|---|
 | [`PROJECT_STATE.md`](PROJECT_STATE.md) | What is actually done, blocked, and next |
-| [`TEST_CASES.md`](TEST_CASES.md) | What "working" means, defined before the code |
+| [`TEST_CASES.md`](TEST_CASES.md) | What "working" means, defined before the code, and which rows pass |
 | [`docs/INDEX.md`](docs/INDEX.md) | The reading route to everything else, including test evidence and milestone history |
 
 **Design:**
@@ -149,10 +167,14 @@ Diagrams are Mermaid and render directly on GitHub.
 
 ## Running this
 
-There is nothing to run yet — no code, no deployed workflow, no service. The
-repository is a design and a test contract at this stage. The first executable
-step is the one in [`PROJECT_STATE.md`](PROJECT_STATE.md) under *Next 3
-actions*.
+The golden path runs live: n8n Cloud hosts the production webhook, and GHL's
+`Form to Opportunity` workflow (v12) fires it on every new Opportunity. To
+exercise it without a live form submission,
+[`scripts/replay-webhook.ps1`](scripts/replay-webhook.ps1) replays a fixture
+payload against the same webhook, and the manual-trigger test harness in
+[`docs/n8n/testing.md`](docs/n8n/testing.md) covers each scenario end to end.
+Reconciliation (TC-17) cannot run yet — see [`PROJECT_STATE.md`](PROJECT_STATE.md)
+*Next 3 actions*.
 
 ## Reading the claims in this repository
 
@@ -163,4 +185,8 @@ Language is used precisely and deliberately throughout:
 - **"Not detected"** — not found in the locations inspected. Never "does not exist".
 - **"Designed"** — decided and written down. **Not built, and not tested.**
 
-Everything describing the pipeline itself is currently **designed**.
+The golden path and its retry/terminal-handoff behaviour are now **verified**
+against nine passing test cases. Four-service routing, appointment booking, AI
+enrichment, and an active reconciliation sweep remain **designed** — see
+[`PROJECT_STATE.md`](PROJECT_STATE.md) for the full list of open risks and
+blockers.
