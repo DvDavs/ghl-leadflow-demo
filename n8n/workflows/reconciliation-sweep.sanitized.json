@@ -67,7 +67,7 @@
         },
         "options": {}
       },
-      "notes": "VERIFIED 2026-08-10 (exec 45): location_id is the spelling GHL accepts. A credentialed GET returned the location's 13 opportunities and GHL's own meta.nextPageUrl echoes location_id=. The alternative spelling locationId was never needed and was not tested. GET only -- this workflow issues no write to GHL. Bind a Header Auth credential holding a Private Integration Token scoped to opportunities.readonly; credentials are stripped from this export."
+      "notes": "location_id is ACCEPTED (2026-08-10, exec 45): a credentialed GET succeeded and returned the location's 13 opportunities, so the old UNVERIFIED worry that GHL rejects this parameter name is disproved. It is NOT proven that GHL reads it: the token is a sub-account PIT, so the location is already implied by the credential, and meta.nextPageUrl echoing location_id= shows an echo, not a parse. No control run (locationId, omitted, or wrong) was made. GET only -- this workflow issues no write to GHL. Bind a Header Auth credential holding a Private Integration Token scoped to opportunities.readonly; credentials are stripped from this export."
     },
     {
       "id": "e3b46480-7dd9-45a2-96ec-8e9ce9ea3157",

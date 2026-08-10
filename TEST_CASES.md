@@ -57,7 +57,7 @@ machine-checkable proof it shipped.
 | TC-14 | Appointment no-show or cancellation | BLOCKED (P-GHL, P-CAL) — deferred until TC-01 is stable | — | — |
 | TC-15 | Human review — AI declines to classify | BLOCKED (P-GHL, P-N8N) | — | — |
 | TC-16 | Human review — financial boundary | BLOCKED (P-GHL, P-N8N) | — | — |
-| TC-17 | **Reconciliation recovers a lost webhook** | PASS — six recovered, second run wrote nothing; one defect found in `run_log` | Sweep `LbfiJvlXEWvVGhzh` version `09f0c52c` (exec 45 recovery, exec 49 idempotence) | [reconciliation](docs/evidence/reconciliation-tests.md#tc-17--reconciliation-recovers-a-lost-webhook) |
+| TC-17 | **Reconciliation recovers a lost webhook** | PASS — six recovered, second run wrote nothing; one defect found in `run_log` | Reconciliation sweep, exec 45 (recovery) and exec 49 (idempotence). Active version `90830f62` differs from the runs only in two nodes' `notes` text, which n8n does not execute | [reconciliation](docs/evidence/reconciliation-tests.md#tc-17--reconciliation-recovers-a-lost-webhook) |
 | TC-18 | Unauthorized webhook rejected — 401, no business write | PASS | P08 n8n `c1225347` (exec 37, wrong-value arm); the absent-secret arm's evidence is pre-`b162ad3f` and was **not** re-run | [security](docs/evidence/security-tests.md#tc-18--unauthorized-webhook-rejected) |
 | TC-19 | **Formula injection through the public form** — stored as literal text | PASS | P08 n8n `c1225347` (exec 35) | [security](docs/evidence/security-tests.md#tc-19--formula-injection-through-the-public-form) |
 

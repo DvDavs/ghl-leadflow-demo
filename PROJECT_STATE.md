@@ -16,8 +16,9 @@ did so.
 
 ## Current milestone
 
-**Milestone 7 — failure, retry and human handoff (P08). Complete: the retry
-half and reconciliation are both built, published, active and evidenced.**
+**Milestone 7 — failure, retry and human handoff (P08, closed out by P08B).
+Complete: the retry half and reconciliation are both built, published, active
+and evidenced.**
 
 A downstream failure no longer loses the lead and no longer lies to the sender:
 the write is answered `202 retry_scheduled` and retried on a bounded ladder held
@@ -39,7 +40,7 @@ its second run wrote nothing. It also found a defect in itself — see
 | **GHL (P05, P07)** | Form → Contact → Opportunity → Pipeline runs live. 7 P0 custom fields, 5 P0 tags, `LeadFlow Demo Pipeline` (7 stages), the Service Inquiry form, and `Form to Opportunity` **v12** with the re-inquiry branch — all published. Pipeline, form and workflow are UI-only; no MCP write operation exists for any of the three |
 | **n8n ingress (P06)** | Webhook → allowlist normalization → shared-secret check → ledger claim → `leads_backup` (Append or Update on `eventId`) → ledger `completed`, with deterministic 401 / 422 / 200 / 200-duplicate / 202 responses and append-only `run_log` boundaries. Published and active |
 | **n8n reliability (P08)** | Bounded retry (3 attempts, 70s base, ×2, +0–20% jitter, 300s cap) on a database-persisted `Wait`; terminal `needs_human` handoff; operator-only append-only fault switch, left `off`; node-level retry on every write between the claim and a terminal state |
-| **Reconciliation (P08B)** | 12-node sweep **published, active, on a 10-minute schedule**. Reads `GET /opportunities/search` with a Header Auth credential holding a sub-account PIT scoped to `opportunities.readonly`; `location_id` confirmed against a live credentialed call. TC-17 passed: 6 recovered, second run wrote nothing |
+| **Reconciliation (P08B)** | 12-node sweep **published, active, on a 10-minute schedule**. Reads `GET /opportunities/search` with a Header Auth credential holding a sub-account PIT scoped to `opportunities.readonly`; `location_id` is **accepted** by GHL, though not proven to be *read* — the sub-account token already implies the location. TC-17 passed: 6 recovered, second run wrote nothing |
 | **Test harness (P08)** | Two manual-trigger-only n8n workflows: a sender that injects the secret at send time, and an evidence reader over the three sheet tabs, the ledger and the fault switch. Neither has a public trigger |
 
 Artifacts under [`n8n/workflows/`](n8n/workflows/) and
@@ -90,6 +91,8 @@ been bitten by treating a change that *should* have landed as one that did.
 | **TC-12's hardened exhaustion branch is unexercised**, and TC-09, TC-18 and TC-19 cover active version `c1225347`, one publish before the deployed `4ab773e2` | [`TEST_CASES.md`](TEST_CASES.md) |
 | **`Log Reconciled` writes three `run_log` rows per recovery, not one.** Six recoveries left 18 rows. Node time 14–18 s each against `maxTries: 3 / waitBetweenTries: 5000` — two failed attempts that each still landed a row, then a success. **Cause unknown**: n8n does not persist a retried node's intermediate errors. `leads_backup` and the ledger are unaffected (both converge; both deltas were exactly +6). Do **not** disable `retryOnFail` to hide it | [evidence](docs/evidence/reconciliation-tests.md) · [operations](docs/n8n/operations.md) §5 |
 | **TC-17 has no unconsumed test data left.** The six orphaned opportunities were the scenario's fixtures and run 1 recovered all six. Re-running it needs a fresh opportunity whose webhook does not reach n8n | [evidence](docs/evidence/reconciliation-tests.md) |
+| **`README.md` is now factually wrong and is the first thing a public reader sees.** Its banner still says reconciliation is blocked on a missing credential, the sweep is "built and published, inactive", and "nine of twenty" scenarios pass. P08B's scope was explicitly limited to four files, so it was left untouched **deliberately, not by oversight** — but it contradicts this file and must be corrected in a follow-up commit | `README.md` lines 6, 9, 12–14, 82, 176 |
+| **`location_id` is accepted by GHL but not proven to be read.** The sub-account token already implies the location, so the parameter may be ignored; `meta.nextPageUrl` echoing it proves an echo, not a parse. No control run was made. Settled for this sweep, open as a general claim — do not quote it as "GHL's opportunity search takes `location_id`" | [evidence](docs/evidence/reconciliation-tests.md) |
 
 **Silent-loss paths still open**
 

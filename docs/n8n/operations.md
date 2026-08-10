@@ -322,11 +322,15 @@ One scope is enough because the search response embeds
 screenshot.** Create it in the GHL location's Settings → Private Integrations
 and type it straight into the n8n credential.
 
-> **That parameter is now settled: `location_id` is what GHL accepts.** The
-> first credentialed run returned the location's 13 opportunities, and GHL's own
-> `meta.nextPageUrl` in the response echoes `location_id=`. The alternative
-> spelling `locationId` was never needed and was not tested. The node's note was
-> rewritten from `UNVERIFIED` to record this.
+> **`location_id` is accepted — and that is a smaller claim than "correct".**
+> The first credentialed run succeeded and returned the location's 13
+> opportunities, so the old `UNVERIFIED` worry (that the sweep sends a parameter
+> name GHL rejects) is disproved. But the token is a **sub-account** PIT, so the
+> location is already implied by the credential: GHL may be scoping on the token
+> alone and ignoring the parameter. `meta.nextPageUrl` echoing `location_id=`
+> shows an echo, not a parse. No control run — `locationId`, omitted, or wrong —
+> was made. **Closed for this sweep, open in general:** do not quote this
+> elsewhere as "the opportunity search takes `location_id`".
 
 **The credential is never read from this repository, and must not be.** It was
 bound to the node over the n8n MCP API by name and id; its value was not opened,

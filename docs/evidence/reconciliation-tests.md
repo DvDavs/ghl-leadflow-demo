@@ -32,28 +32,48 @@ twice must change nothing the second time; and neither Valeria Cruz (TC-01) nor
 the `=1+1` formula fixture (TC-19) may be touched, since both already hold
 `completed` ledger rows.
 
-**Actual.** **PASS on every assertion above.** The sweep
-(`LbfiJvlXEWvVGhzh`, published version `09f0c52c`) was bound to the existing n8n
-Header Auth credential *GHL LeadFlow Demo — Opportunities Read Only*, which
-holds a sub-account Private Integration Token scoped to
-`opportunities.readonly`. The credential was bound over MCP; its value was never
-read, displayed, exported or logged.
+**Actual.** **PASS on every assertion above.** The sweep was bound to the
+existing n8n Header Auth credential *GHL LeadFlow Demo — Opportunities Read
+Only*, which holds a sub-account Private Integration Token scoped to
+`opportunities.readonly`. The credential was bound over the n8n MCP API by name
+and id; its value was never read, displayed, exported or logged.
 
-### The location parameter, settled
+**Version the pass covers.** Both runs executed the node graph as it stood
+immediately after the credential was bound. The sweep was published afterwards
+and the active version is now `90830f62`. The only changes between the runs and
+that version are `notes` text on two nodes — documentation n8n does not execute
+— so the pass covers the deployed behaviour. Any future parameter or code change
+puts that back in doubt and needs a re-run.
 
-`location_id` is the spelling GHL accepts. Run 1's
+### The location parameter — accepted, but not proven to be *read*
+
+Run 1's
 `GET https://services.leadconnectorhq.com/opportunities/search?location_id=…&order=added_desc&limit=100`
-(`Version: 2021-07-28`) returned the location's opportunities with
-`meta.total: 13`, and GHL's own `meta.nextPageUrl` in the response echoes
-`location_id=`. The alternative spelling `locationId` was never needed and was
-**not** tested — one confirmed spelling settles the question the node's note
-was asking.
+(`Version: 2021-07-28`) succeeded and returned the location's opportunities with
+`meta.total: 13`.
 
-**What is claimed precisely:** the call succeeded and returned a real parsed
-GHL body. The node does not request the full response, so the numeric status
-code is not in persisted execution data; n8n's HTTP Request node raises on any
-non-2xx, so a successful call is a 2xx. `location_id` being accepted is read
-from the response itself, not inferred.
+**What is established:** `location_id` is accepted. The node's old
+`UNVERIFIED` warning — that the sweep might be sending a parameter name GHL
+rejects — is disproved. The sweep works as sent.
+
+**What is NOT established, and the earlier draft of this file wrongly claimed:**
+that GHL *parses and filters on* `location_id`. The credential is a
+**sub-account** Private Integration Token, so the location is already implied by
+the token itself; GHL may be scoping the query on the token alone and ignoring
+the parameter entirely. `meta.nextPageUrl` echoing `location_id=` proves only
+that GHL echoed the query string back, not that it read it. Distinguishing the
+two needs a control that was **not** run — the same call with `locationId`, or
+with the parameter omitted, or with a deliberately wrong value.
+
+This does not weaken the TC-17 result: the sweep queried the right location and
+recovered the right rows either way. It means the `location_id` vs `locationId`
+question is **closed for this sweep and open in general**, and it must not be
+quoted elsewhere as "GHL's opportunity search takes `location_id`".
+
+**On the status code:** the node does not request the full response, so no
+numeric code is in persisted execution data. n8n's HTTP Request node raises on
+any non-2xx, and the node succeeded returning a parsed GHL body, so the call was
+a 2xx. The exact code was not read and is not claimed.
 
 ### Run 1 — recovery (execution 45, 01:09:04 → 01:11:07 UTC, success)
 
