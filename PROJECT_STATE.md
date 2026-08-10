@@ -29,16 +29,20 @@ script, the per-system fallbacks and the 10-minute pre-interview checklist are i
 [`docs/demo/runbook.md`](docs/demo/runbook.md); the leave-behind summary is
 [`docs/demo/one-page.md`](docs/demo/one-page.md).
 
-**The offline half is three-fifths done.** Captured and sanitized: the CRM
-pipeline board, the n8n execution answering `200 processed` with its full
-correlation row, and the reconciliation sweep showing its 10-minute cadence and
-its 1-recovered / 9-already-known split. **Still blocked: the `leads_backup`
-and `needs_human` captures, and the video.** The two screenshots need a Google
-session in the browser Playwright drives — which is *its own instance with its
-own profile*, so signing in to an everyday Chrome window does not reach it. The
-video is blocked on that plus a second thing a login will not fix: recording is
-a Playwright context-creation option, and the MCP server exposes no way to
-start one mid-session. Nothing was faked to fill either gap. See
+**All five screenshots are captured and sanitized:** the CRM pipeline board,
+the n8n execution answering `200 processed` with its correlation row, the
+`leads_backup` tab with one row per event, the `needs_human` terminal handoff
+with its full reason, and the reconciliation sweep showing its 10-minute cadence
+and its 1-recovered / 9-already-known split. Record identifiers are redacted to
+eight characters **in the pixels**, holding the line that no full 20-character
+record id has ever been committed to this repository in any form.
+
+**Only the video is outstanding, and no login will fix it.** Playwright records
+video as a browser-*context creation* option; the MCP server owns context
+creation and exposes no recording tool, so a session already in flight cannot
+start recording and a fresh recorded context would start logged out of
+everything. It needs a recording-enabled MCP configuration or a human with a
+screen recorder. Nothing was faked to fill the gap. See
 [`assets/demo/`](assets/demo/).
 
 **Milestone 7 — failure, retry and human handoff (P08, closed out by P08B and
@@ -217,13 +221,12 @@ All 26, including the three ADRs, in
 
 ## Next 3 actions
 
-1. **Finish the demo fallback assets (#12, still In Progress).** The script,
-   the one-pager, two unassisted rehearsals and three of five screenshots are
-   done — see [`docs/demo/runbook.md`](docs/demo/runbook.md) and
-   [`assets/demo/`](assets/demo/). What is left is the `leads_backup` and
-   `needs_human` captures, which need a Google session **in the browser
-   Playwright itself drives**, and the video, which additionally needs a
-   recording-enabled Playwright context or a human with a screen recorder.
+1. **Record the video and close #12.** Everything else the issue asks for is
+   done: the script, the one-pager, two unassisted rehearsals and all five
+   sanitized screenshots — see [`docs/demo/runbook.md`](docs/demo/runbook.md)
+   and [`assets/demo/`](assets/demo/). The video needs a recording-enabled
+   Playwright context or a human with a screen recorder; it is the only thing
+   holding the issue open.
 2. **Decide whether the duplicate-opportunity guard is worth chasing further.**
    TC-02b established the window is under 1.5 s and that the browser cannot
    get inside it. The honest options are to leave it `[DOCUMENTED]` and say so
