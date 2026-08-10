@@ -119,6 +119,7 @@ No credentials are stored here. [`.env.example`](.env.example) lists variable
 |---|---|
 | [`PROJECT_STATE.md`](PROJECT_STATE.md) | What is actually done, blocked, and next |
 | [`TEST_CASES.md`](TEST_CASES.md) | What "working" means, defined before the code |
+| [`docs/INDEX.md`](docs/INDEX.md) | The reading route to everything else, including test evidence and milestone history |
 
 **Design:**
 

@@ -153,7 +153,7 @@ fixed by re-inserting the tokens from the picker.
 
 The second GHL workflow — `LeadFlow Demo — Opportunity to n8n` — is built and
 published. Its rebuildable checklist lives in
-[`n8n-setup.md`](n8n-setup.md) §6, together with the declared Custom Data
+[`n8n/setup.md`](n8n/setup.md) §6, together with the declared Custom Data
 contract, because the payload contract and the n8n side that consumes it have
 to be read as one thing. Two constraints from that section belong here too:
 

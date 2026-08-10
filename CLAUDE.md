@@ -4,14 +4,24 @@ Compact. Read this fully; do not skip to the task.
 
 ## Start here, every session
 
-1. Read [`PROJECT_STATE.md`](PROJECT_STATE.md) first. It is the current-state
-   summary — do not reconstruct project history from commits or docs.
-2. The GitHub Project board is the source of truth for sprint status
-   (Backlog/Ready/In Progress/Testing/Done/Blocked). `PROJECT_STATE.md` is its
-   public mirror, not a replacement.
-3. Read only the specific issue and docs relevant to your task. Do not
-   re-summarize the whole repository in your output — the reader already has
-   this file and `PROJECT_STATE.md`.
+Read in this order, and stop as soon as you have what the task needs:
+
+1. [`PROJECT_STATE.md`](PROJECT_STATE.md) — the current-state snapshot. Do not
+   reconstruct project history from commits or docs.
+2. [`TEST_CASES.md`](TEST_CASES.md) — the status matrix: per scenario, its
+   status, the artifact version the pass covers, and a link to its evidence.
+3. [`docs/INDEX.md`](docs/INDEX.md) — the reading route to everything else.
+4. **Open evidence (`docs/evidence/`) or history (`docs/history/`) only when
+   the task actually needs them.** They are deliberately kept out of the
+   default reading path so a session does not load them by reflex.
+
+The GitHub Project board is the source of truth for sprint status
+(Backlog/Ready/In Progress/Testing/Done/Blocked). `PROJECT_STATE.md` is its
+public mirror, not a replacement.
+
+Read only the specific issue and docs relevant to your task. Do not
+re-summarize the whole repository in your output — the reader already has
+this file and `PROJECT_STATE.md`.
 
 ## Naming
 
@@ -54,5 +64,8 @@ Compact. Read this fully; do not skip to the task.
 
 - Update `PROJECT_STATE.md` after any change significant enough to affect
   what the next session needs to know.
+- **Keep `PROJECT_STATE.md` a snapshot, not a log.** Milestone narrative goes
+  to `docs/history/`, observed test output to `docs/evidence/`, and the status
+  matrix stays a matrix. If a section starts growing a story, move the story.
 - Keep this file short. Architecture, decisions, and setup detail live in
   `docs/` — do not duplicate them here.

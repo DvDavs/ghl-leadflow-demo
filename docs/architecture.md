@@ -288,7 +288,7 @@ row is now concrete and implemented:
 The two counter-intuitive choices — a 70-second base rather than a snappier
 one, and jitter that only ever adds — both come from a single n8n behaviour:
 a wait under 65 seconds is held in memory instead of being persisted. Full
-reasoning in [`n8n-setup.md`](n8n-setup.md) §5b. The other rows in the table
+reasoning in [`n8n/operations.md`](n8n/operations.md) §3. The other rows in the table
 above remain design, not evidence.
 
 The retry is held **inside the original execution** by a durable wait, not by a
@@ -349,7 +349,7 @@ deliberately inactive: it needs a GoHighLevel credential n8n does not have. The
 OAuth grant used elsewhere in this project belongs to the Claude Code MCP
 client and cannot be lent to n8n — an MCP session is not a runtime credential.
 A read-only Private Integration scoped to `opportunities.readonly` is the
-proportionate answer; see [`n8n-setup.md`](n8n-setup.md) §5d.
+proportionate answer; see [`n8n/operations.md`](n8n/operations.md) §5.
 
 ## 8. Trust boundaries
 
