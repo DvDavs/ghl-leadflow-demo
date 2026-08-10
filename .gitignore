@@ -79,6 +79,8 @@ blob-report/
 playwright/.cache/
 playwright/.auth/
 .last-run.json
+# Playwright MCP scratch: page snapshots and console logs of a live CRM session.
+.playwright-mcp/
 
 # --- Tunnel config ----------------------------------------------------------
 # ngrok config files hold the authtoken.
