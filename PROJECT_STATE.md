@@ -16,9 +16,20 @@ did so.
 
 ## Current milestone
 
-**Milestone 7 — failure, retry and human handoff (P08, closed out by P08B).
-Complete: the retry half and reconciliation are both built, published, active
-and evidenced.**
+**Milestone 7 — failure, retry and human handoff (P08, closed out by P08B and
+P08C). Complete: the retry half and reconciliation are both built, published,
+active and evidenced, and the two GHL-side regression gates P08 could not reach
+are now closed.**
+
+**P08C closed both of them with browser automation.** The `inquiry_count` null
+on pre-P07 contacts is fixed in GHL **v13** — an `If/Else` sets `2` on an empty
+field instead of incrementing a null — and proven on a real pre-P07 fixture.
+**TC-02b was re-run against v13** and passes. It did **not** get the sub-second
+double submission it was aimed at: Cloudflare Turnstile serialized the two
+posts 4.3 s apart, so it proves duplicate-submission safety at that separation
+and nothing about concurrency. It did answer *why* the duplicate-opportunity
+guard stays unexercised — at 4.3 s the second run finds the first's
+opportunity and never reaches `Create Opportunity`.
 
 A downstream failure no longer loses the lead and no longer lies to the sender:
 the write is answered `202 retry_scheduled` and retried on a bounded ladder held
@@ -41,7 +52,7 @@ fixed artifact.
 
 | Leg | State |
 |---|---|
-| **GHL (P05, P07)** | Form → Contact → Opportunity → Pipeline runs live. 7 P0 custom fields, 5 P0 tags, `LeadFlow Demo Pipeline` (7 stages), the Service Inquiry form, and `Form to Opportunity` **v12** with the re-inquiry branch — all published. Pipeline, form and workflow are UI-only; no MCP write operation exists for any of the three |
+| **GHL (P05, P07, P08C)** | Form → Contact → Opportunity → Pipeline runs live. 7 P0 custom fields, 5 P0 tags, `LeadFlow Demo Pipeline` (7 stages), the Service Inquiry form, and `Form to Opportunity` **v13** — the re-inquiry branch plus the `inquiry_count` null-safety `If/Else` — all published. Pipeline, form and workflow are UI-only; no MCP write operation exists for any of the three, so `version` is the only machine-checkable proof an edit shipped |
 | **n8n ingress (P06)** | Webhook → allowlist normalization → shared-secret check → ledger claim → `leads_backup` (Append or Update on `eventId`) → ledger `completed`, with deterministic 401 / 422 / 200 / 200-duplicate / 202 responses and append-only `run_log` boundaries. Published and active |
 | **n8n reliability (P08)** | Bounded retry (3 attempts, 70s base, ×2, +0–20% jitter, 300s cap) on a database-persisted `Wait`; terminal `needs_human` handoff; operator-only append-only fault switch, left `off`; node-level retry on every write between the claim and a terminal state |
 | **Reconciliation (P08B)** | 12-node sweep **published, active, on a 10-minute schedule**, active version `060c3ca1`. Reads `GET /opportunities/search` with a Header Auth credential holding a sub-account PIT scoped to `opportunities.readonly`; `location_id` is **accepted** by GHL, though not proven to be *read* — the sub-account token already implies the location. All three writes are idempotent: `leads_backup` Append-or-Update on `eventId`, ledger upsert on `eventId`, `run_log` Append-or-Update on `correlationId + eventId + step`. TC-17 passes on this version |
@@ -52,13 +63,17 @@ Artifacts under [`n8n/workflows/`](n8n/workflows/) and
 
 ## Test status
 
-**Ten of twenty scenarios pass against the deployed artifacts:** TC-01, TC-02,
-TC-03, TC-09, TC-10, TC-11, TC-12, **TC-17**, TC-18, TC-19. **TC-02b passed
-against a GHL workflow that no longer exists** and needs re-running against v12.
-**TC-17 was re-run after its own defect was fixed**, and now covers recovery,
-idempotence and log accuracy. The remaining nine are `BLOCKED` or deliberately
-deferred. Per-row status, version coverage and evidence links:
-[`TEST_CASES.md`](TEST_CASES.md).
+**Eleven of twenty scenarios pass. Ten cover the deployed artifacts:** TC-01,
+TC-02, **TC-02b**, TC-09, TC-10, TC-11, TC-12, TC-17, TC-18, TC-19. **TC-02b
+was re-run against GHL v13** and no longer covers a workflow that does not
+exist. **TC-03 took its place in the demoted column** — v13 rebuilt the
+`Opportunity Found` branch TC-03 exercises, and the `Increment` + `Go To` arm
+is unobserved. **TC-01 got stronger instead**: TC-02b's first submission
+re-observed its GHL side at v13 *and* its n8n side on the active `4ab773e2`
+(execution 72 — backup row, ledger `completed`, `outcome=processed`), making it
+the only row covering both legs at their deployed versions. The remaining nine
+are `BLOCKED` or deliberately deferred. Per-row status, version coverage and
+evidence links: [`TEST_CASES.md`](TEST_CASES.md).
 
 ## Issues and project board
 
@@ -69,16 +84,25 @@ TC-17 found, worked, and closed the same day. **#10 was not reopened**: it had
 already been closed on evidence that stands, and the log defect was a distinct,
 separately tracked fault.
 
+**#11 — *Add E2E tests and evidence*** is **In Progress**, not Done. P08C
+closed the two scenarios that had been carrying it, but its acceptance criteria
+cover the whole matrix and nine scenarios are still `BLOCKED` or deferred,
+**TC-03 is demoted pending a re-run against v13**, and the sub-second double
+submission it wanted is not reachable through the browser.
+
 Re-read the board rather than trusting this section; the repository has twice
 been bitten by treating a change that *should* have landed as one that did.
 
 ## Blocked
 
-- **TC-02b — not re-run against GHL v12**, and **pre-P07 `inquiry_count` null
-  safety — not addressed.** Both need live submissions of the public form. The
-  form still has no documented submit endpoint, but **Playwright is now
-  available**, so browser automation is no longer the missing piece it was in
-  P08.
+- **TC-03 — not re-run against GHL v13.** Needs one more pre-P07-style live
+  submission pair against a contact whose `inquiry_count` is already set, so
+  the `Increment` + `Go To` arm is exercised rather than assumed.
+- **A sub-second double submission is not reachable by browser automation.**
+  Cloudflare Turnstile sits in front of the public form and each page solves
+  its own challenge, which pushed two simultaneously-dispatched submissions
+  4.3 s apart. Getting inside the ~1.5 s window the guard needs would take a
+  different injection point than the browser, and none is documented.
 - **Docker engine is stopped**, so container-level inventory is undetermined.
   Only relevant if the Docker + ngrok fallback is ever needed.
 
@@ -88,8 +112,9 @@ been bitten by treating a change that *should* have landed as one that did.
 
 | Risk | Detail |
 |---|---|
-| **The duplicate-opportunity guard has never been exercised.** Configured and person-scoped, sitting as a backstop behind the `Find Opportunity` split. The event-scoped mitigation ADR-002 wanted still does not exist — `search-opportunity` cannot filter by `external_lead_id` | [ADR-002](docs/decisions/ADR-002-idempotency-strategy.md) "Consequences to watch" |
-| **All evidence about the deployed system is sequential.** The one concurrency observation anywhere is a throwaway diagnostic: three simultaneous Google Sheets appends to one tab all reported success and only **one** row survived. Seen on the diagnostic's own writes, never on a production path — recorded as a question about the tool, not a claim about this system | [evidence](docs/evidence/reconciliation-tests.md#open-questions-this-run-leaves) |
+| **The duplicate-opportunity guard has still never been exercised**, and TC-02b's re-run explains rather than closes it. At a 4.3 s separation the second run finds the first's opportunity and takes `Found`, so `Create Opportunity` is reached once, not twice. The window in which the guard could fire is **under 1.5 s**. The event-scoped mitigation ADR-002 wanted still does not exist — `search-opportunity` cannot filter by `external_lead_id` | [ADR-002](docs/decisions/ADR-002-idempotency-strategy.md) "Consequences to watch" · [evidence](docs/evidence/ghl-tests.md#tc-02b--duplicate-form-submission-same-person-submits-twice) |
+| **All evidence about the deployed system is still effectively sequential.** TC-02b is the closest attempt and it missed by 4.3 s, measured twice — 4.376 s client-side, 4.326 s from GHL's own submission stamps. The only other concurrency observation anywhere is a throwaway diagnostic: three simultaneous Google Sheets appends to one tab all reported success and only **one** row survived. Seen on the diagnostic's own writes, never on a production path | [evidence](docs/evidence/reconciliation-tests.md#open-questions-this-run-leaves) |
+| **The `Increment` + `Go To` arm of the v13 `If/Else` is unobserved.** Both P08C runs took the `empty` arm. `Go To` is the only construct in either GHL workflow whose behaviour rests on nothing but the build report and the published version number — no run has traversed it | [evidence](docs/evidence/ghl-tests.md#p08c--inquiry_count-null-safety-on-a-pre-p07-contact) |
 | **TC-12's hardened exhaustion branch is unexercised**, and TC-09, TC-18 and TC-19 cover active version `c1225347`, one publish before the deployed `4ab773e2` | [`TEST_CASES.md`](TEST_CASES.md) |
 | **`Log Reconciled`'s post-write failure is fixed but not explained.** Two of three attempts committed their `run_log` row and then failed; the write is now Append-or-Update on `correlationId + eventId + step`, so it converges. **The error itself is still unknown** — n8n discards a retried node's intermediate errors, and five isolated single-attempt appends all succeeded. It recurred during the passing re-run (13.5 s for one recovery) and still produced one row | [evidence](docs/evidence/reconciliation-tests.md#diagnosis--three-attempts-three-commits-one-reported-success) · [operations](docs/n8n/operations.md) §5 |
 | **TC-17 has no unconsumed test data left**, for the second time. `Noa Feldman` was the re-run's fixture and execution 59 consumed it. Re-running needs another fictional opportunity created while the n8n ingress workflow is deactivated — the GHL webhook fires on *Opportunity Created*, so the API route does not avoid it | [evidence](docs/evidence/reconciliation-tests.md#ready-made-test-data--consumed-twice-over) |
@@ -104,7 +129,7 @@ been bitten by treating a change that *should* have landed as one that did.
 | **A `failed` ledger row is not proof a human was told** — ledger row `id=7` is exactly that case. Judge the handoff on the `needs_human` row, never the ledger alone | [operations](docs/n8n/operations.md) §4 |
 | **A re-inquiry leaves no `leads_backup` row and reconciliation cannot find it**, so `architecture.md` §5's "Sheets is event-grained" is not yet true for re-inquiries. **Not a TC-17 instance.** Deferred deliberately; both available shortcuts are actively harmful | [ADR-002](docs/decisions/ADR-002-idempotency-strategy.md) item 2 |
 | **The re-inquiry branch is pipeline-scoped; the guard it compensates for is person-scoped**, so a contact whose open opportunity sits in another pipeline still falls through to the silent swallow, now with `inquiry_count = 1` written over it. Unreachable in a single-pipeline demo; the fix is one filter removal | [ghl-setup](docs/ghl-setup.md) "Two scope limits" |
-| **`Math Operation` will hit a null for every contact created before P07.** `David Demo` and `Valeria Cruz` both have an open opportunity, so a resubmission takes the `Found` path into an increment on a null — undocumented and unobserved | [ghl-setup](docs/ghl-setup.md) build rule 3 |
+| ~~`Math Operation` will hit a null for every contact created before P07.~~ **Closed in P08C (v13)** — an `If/Else` sets `2` on an empty `inquiry_count` instead of incrementing a null, observed live on `Marisol Vega` | [ghl-setup](docs/ghl-setup.md) build rule 3 |
 
 **Traps that have already bitten once**
 
@@ -130,7 +155,8 @@ a demo. Cleanup pending an explicit decision; nothing has been deleted.
 
 | Risk | Detail |
 |---|---|
-| **Ten fictional diagnostic contacts pollute the demo location.** All ten have a `leads_backup` row: three fired their webhook normally (Valeria Cruz, the `=1+1 Testcase` fixture, Priya Chandran) and **seven were recovered by the sweep** on 2026-08-10 — six on its first run, then `Noa Feldman` on the re-run — so they carry `lastAction=reconciled` | [evidence](docs/evidence/reconciliation-tests.md) |
+| **Eleven fictional diagnostic contacts pollute the demo location.** All eleven have a `leads_backup` row: **four fired their webhook normally** (Valeria Cruz, the `=1+1 Testcase` fixture, Priya Chandran, and `Ines Marchetti` on execution 72) and **seven were recovered by the sweep** on 2026-08-10 — six on its first run, then `Noa Feldman` on the re-run — so those seven carry `lastAction=reconciled` | [evidence](docs/evidence/reconciliation-tests.md) |
+| **P08C consumed two more fixtures and added one contact.** `Marisol Vega` is no longer null-safety test data — her `inquiry_count` is `2`. `Ines Marchetti` is new (TC-02b), has an open opportunity and `inquiry_count = 2`, and is the first contact in this location created by two form submissions. Six pre-P07 contacts still qualify as null-safety fixtures: `David Demo`, `Sofia Bennett`, `Camila Torres`, `Camila Torres 02`, `Tobias Lind`, `Valeria Cruz` | [evidence](docs/evidence/ghl-tests.md#p08c--inquiry_count-null-safety-on-a-pre-p07-contact) |
 | **P08 fixtures sit in the durable backup.** `p08-regress-alpha`, `p08-tc10b-transient` and `p08-tc19-formula` have `leads_backup` rows; `p08-tc12-persistent` and `p08-tc12b-persistent` are terminal `failed` with none. All fictional, all carrying `source = P08 Internal Test Harness` — the column to filter on before a demo | [operations](docs/n8n/operations.md) §6 |
 | **The trial location's owner First/Last Name is still real** — not committed to git, not part of the interview-facing fixture, so not blocking, but still open after three UI correction attempts | [history](docs/history/ghl-leg-p05-p07.md) |
 
@@ -140,7 +166,7 @@ a demo. Cleanup pending an explicit decision; nothing has been deleted.
 |---|---|
 | Toolchain | Git, GitHub CLI, Node, npm, Claude Code present and verified |
 | Docker | Installed, engine stopped |
-| Playwright | **Connected.** It was absent in P08, which is why everything GHL-UI-shaped stalled there. It was not needed in P08B — the credential was bound to the sweep over the n8n MCP API without opening a browser — but it unblocks the GHL-UI work (TC-02b's re-run, the `inquiry_count` null fix) |
+| Playwright | **Connected, and it delivered in P08C** — both live form submissions behind TC-02b and the null-safety run were browser-driven, including a two-context `Promise.all` double submit. **Two limits found the hard way:** a GHL *admin* deep link answers `404` and renders blank until the SPA has bootstrapped once, so the admin UI stays a human job on a slow link; and the *public* form sits behind Cloudflare Turnstile, which serializes concurrent submissions |
 | n8n | **n8n Cloud live** — workflow published and active on its production webhook URL. Variables and Data Tables both confirmed available on the plan. MCP server connected, tools available |
 | GoHighLevel | **Connected** — official MCP over OAuth, one trial location. No PIT. Operations require an explicit `locationId` even so |
 | Google | **Sheets connected to n8n** via a credential-store OAuth2 credential, bound only to the native Sheets node. Sheet is private |
@@ -155,19 +181,21 @@ All 26, including the three ADRs, in
 
 ## Next 3 actions
 
-1. **Re-run TC-02b against GHL v12, and exercise the duplicate-opportunity guard
-   for real.** Playwright is now available, so the public form can finally be
-   submitted. With re-entry on, a fast double submission can reach
-   `Create Opportunity` twice for one contact — the first test that would
-   actually exercise the guard.
-2. **Close the `inquiry_count` null on pre-P07 contacts**, and clean up the
-   fixture noise: the orphaned `retry_scheduled` ledger row, the `failed` row
-   with no `needs_human` row, and the `p08-` rows in `leads_backup`.
-3. **Decide whether the unexplained Sheets post-write failure is worth chasing.**
-   The sweep now converges under it, so it costs correctness nothing — but it is
-   the one thing in the reliability story with no named cause, and an interviewer
-   is entitled to ask. Capturing it needs the error at the moment it happens,
-   which n8n's retry deliberately throws away.
+1. **Re-run TC-03 against v13** so the `Increment` + `Go To` arm stops resting
+   on a build report. It needs a contact that already has `inquiry_count` set
+   and an open opportunity in `Follow-up` — one drift step and one submission,
+   the same shape TC-03 already used.
+2. **Decide whether the duplicate-opportunity guard is worth chasing further.**
+   TC-02b established the window is under 1.5 s and that the browser cannot
+   get inside it. The honest options are to leave it `[DOCUMENTED]` and say so
+   in the interview, or to find a submission path that bypasses Turnstile —
+   which is a different test from the one the matrix describes.
+3. **Clean up the fixture noise**: the orphaned `retry_scheduled` ledger row,
+   the `failed` row with no `needs_human` row, and the `p08-` rows in
+   `leads_backup`. Still pending an explicit decision; nothing has been deleted.
+   The unexplained Sheets post-write failure sits behind this — the sweep
+   converges under it, so it costs correctness nothing, but it is the one thing
+   in the reliability story with no named cause.
 
 ## Demo readiness
 
@@ -196,15 +224,23 @@ the log write idempotent rather than to switch the retry off, and it was proven
 under the failure itself: the re-run hit the same 13.5-second retry and still
 produced exactly one row.
 
-**What keeps this PARTIAL rather than READY:** TC-02b still does not cover the
-deployed GHL workflow, the duplicate-opportunity guard has never been exercised,
-all evidence about the deployed system is sequential, and a re-inquiry writes no
-backup row *and* creates no opportunity — a gap the sweep structurally cannot
-see. Everything else weaker than a clean matrix would suggest is named under
-"Open risks" rather than buried — including that P08's own tests found three
-defects, one of which produced a `failed` ledger row with nobody told (that row
-is still in the ledger), and that the error behind the reconciliation log defect
-is fixed-around rather than understood.
+**And a second inquiry from a contact the CRM has held since before the feature
+existed no longer walks into an increment on a null.** That gap was carried in
+the open for a sprint, named in `ghl-setup.md` as *known and unclosed*, and
+closed in P08C by branching on the empty field rather than by assuming what
+GHL does with it.
+
+**What keeps this PARTIAL rather than READY:** TC-03 no longer covers the
+deployed GHL workflow, the duplicate-opportunity guard has still never been
+exercised — TC-02b measured the window at under 1.5 s and showed the browser
+cannot reach inside it — all evidence about the deployed system is still
+effectively sequential, and a re-inquiry writes no backup row *and* creates no
+opportunity, a gap the sweep structurally cannot see. Everything else weaker
+than a clean matrix would suggest is named under "Open risks" rather than
+buried — including that P08's own tests found three defects, one of which
+produced a `failed` ledger row with nobody told (that row is still in the
+ledger), and that the error behind the reconciliation log defect is
+fixed-around rather than understood.
 
 Full reading route: [`docs/INDEX.md`](docs/INDEX.md).
 </content>

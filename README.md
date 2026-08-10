@@ -76,7 +76,7 @@ Lead source  →  GoHighLevel contact  →  Opportunity in pipeline
 | Hop | State |
 |---|---|
 | Lead source → GHL Contact → Opportunity → Pipeline | **Live** (P05/P07) |
-| GHL Workflow → outbound webhook | **Live** — `Form to Opportunity` v12 |
+| GHL Workflow → outbound webhook | **Live** — `Form to Opportunity`; deployed version in [`PROJECT_STATE.md`](PROJECT_STATE.md) |
 | n8n ingress: validate → dedup → backup | **Live**, evidenced by TC-01, TC-02, TC-09, TC-18, TC-19 |
 | Downstream failure → retry → terminal handoff | **Live**, evidenced by TC-10, TC-11, TC-12 |
 | Missing webhook → scheduled reconciliation sweep | **Live and active**, evidenced by TC-17 |
@@ -169,7 +169,7 @@ Diagrams are Mermaid and render directly on GitHub.
 ## Running this
 
 The golden path runs live: n8n Cloud hosts the production webhook, and GHL's
-`Form to Opportunity` workflow (v12) fires it on every new Opportunity. To
+`Form to Opportunity` workflow fires it on every new Opportunity. To
 exercise it without a live form submission,
 [`scripts/replay-webhook.ps1`](scripts/replay-webhook.ps1) replays a fixture
 payload against the same webhook, and the manual-trigger test harness in

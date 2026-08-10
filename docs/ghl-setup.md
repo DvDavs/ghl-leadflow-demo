@@ -208,8 +208,14 @@ Trigger: Form Submitted — LeadFlow Demo — Service Inquiry
         │
         └─ Found      →  Add Contact Tag: repeat-inquiry
                           └─ Add to Notes (internal)
-                               └─ Math Operation: inquiry_count + 1
-                                    └─ Find Opportunity #2
+                               └─ If/Else: Inquiry Count Empty?   (P08C, v13)
+                                    ├─ is empty → Set Inquiry Count = 2
+                                    │                └─┐
+                                    └─ None     → Increment Inquiry Count (+1)
+                                                     └─ Go To ──┤
+                                                                │
+                                    ┌───────────────────────────┘
+                                    └─ Recheck Open Opportunity
                                          [contact, Status = open,
                                           Stage = Follow-up]
                                          ├─ Found     → Update Opportunity:
@@ -225,27 +231,35 @@ Five build rules, each paid for by an earlier defect:
 2. **`Update Contact Field: inquiry_count = 1` goes *after* `Create
    Opportunity`, never before.** If it sat first, a failure there would block
    opportunity creation — trading a cosmetic counter for the whole golden path.
-3. **`Math Operation` runs on an initialised field for every contact created
-   from P07 onward**, because rule 2 writes `1` on the first inquiry.
-   **It does not hold for contacts that already existed.** `inquiry_count`
-   exists on the location but nothing had ever written to it before P07, so
-   every pre-P07 contact has it unset — including `David Demo` and
-   `Valeria Cruz`, both of whom currently have an **open** opportunity and would
-   therefore take the `Found` path on a resubmission, straight into a
-   `Math Operation` on a null.
-   HighLevel does not document that behaviour and it has not been observed.
-   This is a **known, unclosed gap**, not a guarantee: stated here rather than
-   left to be discovered during a demo. Two ways to close it, neither built —
-   observe the null behaviour once against a throwaway fixture, or add a
-   set-if-empty step ahead of the increment on the `Found` path.
+3. **The increment never runs on an uninitialised field. [CLOSED in P08C,
+   v13.]** Rule 2 writes `1` on the first inquiry, so every contact created
+   from P07 onward is initialised — but `inquiry_count` had never been written
+   before P07, so every older contact had it unset, and a resubmission would
+   take `Found` straight into an increment on a null. HighLevel does not
+   document that behaviour and it was never observed; the gap was carried here
+   as **known and unclosed** for a sprint rather than assumed away.
+   It is now closed by branching instead of guessing: an `If/Else` on
+   `Inquiry Count is empty` sets **`2`** on the empty path and increments on
+   the other. `2`, not `1` — a contact that already holds an open opportunity
+   has by definition inquired at least once before.
+   **Observed**, not asserted: `Marisol Vega`, pre-P07 and with no
+   `inquiry_count` entry at all, resubmitted once and came out at `2` with one
+   tag, one note, the same opportunity id and `createdAt`, and no webhook
+   ([evidence](evidence/ghl-tests.md#p08c--inquiry_count-null-safety-on-a-pre-p07-contact)).
+   **Still unobserved:** the `Increment` + `Go To` arm. Nothing has taken it
+   since v13 shipped, so TC-03's pass covers v12 only until it is re-run.
 4. **The stage pull-back is gated by a second `Find Opportunity`, not by an
    If/Else on stage.** Same documentation constraint as above, and it reuses a
    primitive already trusted. Unconditionally setting `Contacting` would drag
    an opportunity backwards out of `Qualified` or `Appointment` — exactly the
    metric corruption `architecture.md` §3 forbids. **Evidence status:** TC-03
-   exercised only the `Found` arm of this second step. The `Not Found` arm —
-   the one that actually protects a `Qualified` or `Appointment` deal — is
-   designed, published, and **unobserved**.
+   exercised the `Found` arm. The `Not Found` arm — the one that actually
+   protects a `Qualified` or `Appointment` deal — was **observed in P08C**:
+   `Marisol Vega`'s opportunity sat in `New Lead`, the second
+   `Find Opportunity` returned `Not Found`, and `lastStageChangeAt` came back
+   unchanged. Both arms are now observed, but only on the `empty` path of the
+   v13 `If/Else` — nothing has yet reached this step through the `Increment` +
+   `Go To` arm.
 5. **Every merge value comes from the picker**, never typed. Typing the
    placeholder text produces literal bracket characters — the P05 defect,
    twice paid for.
@@ -292,11 +306,15 @@ amplification — a quick accidental resubmission now also produces a
 
 That is the deliberate direction, not an oversight. ADR-002 already ranks the
 two errors: a duplicate CRM artifact is visible and recoverable, a silently
-swallowed hot lead is neither. **TC-02b has not been re-run against this
-change**, so nothing here claims its outcome still holds — the workflow it
-passed against no longer exists. Its row in
-[`TEST_CASES.md`](../TEST_CASES.md) records the new artifacts and the demotion
-rather than pretending either is absent.
+swallowed hot lead is neither. **TC-02b was re-run against v13 on 2026-08-10
+and the direction held**: two submissions 4.3 s apart produced one Contact, one
+Opportunity, two submission records, and one amplified re-inquiry — the second
+run found the first's opportunity and never reached `Create Opportunity`
+([evidence](evidence/ghl-tests.md#tc-02b--duplicate-form-submission-same-person-submits-twice)).
+**What that re-run did not do is exercise the guard**, and it explains why: the
+window in which two runs could both reach `Create Opportunity` is narrower than
+1.5 s, and browser automation could not get inside it because Cloudflare
+Turnstile serializes the two posts.
 
 A time-window condition (treat as re-inquiry only if the open opportunity is
 older than N minutes) would narrow the false-positive band. It is **not** built
