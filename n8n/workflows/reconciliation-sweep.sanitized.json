@@ -67,7 +67,7 @@
         },
         "options": {}
       },
-      "notes": "UNVERIFIED: the location query parameter name has never been confirmed against a live 200. Confirm it on the first credentialed run."
+      "notes": "VERIFIED 2026-08-10 (exec 45): location_id is the spelling GHL accepts. A credentialed GET returned the location's 13 opportunities and GHL's own meta.nextPageUrl echoes location_id=. The alternative spelling locationId was never needed and was not tested. GET only -- this workflow issues no write to GHL. Bind a Header Auth credential holding a Private Integration Token scoped to opportunities.readonly; credentials are stripped from this export."
     },
     {
       "id": "e3b46480-7dd9-45a2-96ec-8e9ce9ea3157",
@@ -512,7 +512,8 @@
       },
       "retryOnFail": true,
       "maxTries": 3,
-      "waitBetweenTries": 5000
+      "waitBetweenTries": 5000,
+      "notes": "KNOWN DEFECT (TC-17, exec 45): this node appended THREE identical reconciled rows per recovered event -- 18 run_log rows for 6 recoveries. Node time was ~17s each, consistent with two failed attempts plus the 5s waitBetweenTries before a third that succeeded; every attempt still landed a row. n8n does not persist the intermediate retry errors, so the cause is not yet known. leads_backup and the ledger are unaffected (Append-or-Update and upsert both converge). Do not change retryOnFail blind: dropping it trades a triplicated log for a possibly missing one."
     },
     {
       "id": "63c68786-ad31-4586-a458-3940d0d7ef2c",

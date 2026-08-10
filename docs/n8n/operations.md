@@ -231,7 +231,10 @@ Four design points, each of which is a way this could have been got wrong:
   that the human is finished.
 - **Safe to run twice**, by construction and twice over: the first run writes a
   `completed` ledger row that every later run sees, and the backup write is
-  Append-or-Update on `eventId` regardless.
+  Append-or-Update on `eventId` regardless. **Now measured, not just argued** —
+  TC-17's second run sent all nine candidates down the skip branch and never
+  invoked a single write node
+  ([evidence](../evidence/reconciliation-tests.md#run-2--idempotence-execution-49-011805--011808-utc-success)).
 - **The 24-hour lookback is much wider than the 10-minute schedule.** A sweep
   that only looked back one interval would miss anything falling in a window
   where n8n itself was down — which is precisely when webhooks go missing.
@@ -246,6 +249,33 @@ recovered row says `lastAction=reconciled` so nobody mistakes it for a
 first-class delivery. Adding the scope is a defensible upgrade; taking it
 without saying why is not.
 
+**One further difference the first live run exposed, which was not predicted:**
+`stage` on a recovered row is the raw `pipelineStageId`
+(`2de64cba-…`), not the human name `New Lead` the
+webhook path writes — the search response carries no stage name. `phone` also
+arrives E.164 (`+12025550176`) rather than the form's `(202) 555-0193`. A
+recovered row and a delivered row therefore do not sort or filter alike on
+either column. Full table in
+[evidence](../evidence/reconciliation-tests.md#what-a-recovered-row-does-not-carry).
+
+### Open defect — `Log Reconciled` writes three rows per recovery
+
+TC-17's first live run recovered six events and left **18** `reconciled` rows in
+`run_log`, exactly three per event. The node ran once per recovery and reported
+success, taking 14–18 s each time against a configured
+`retryOnFail / maxTries: 3 / waitBetweenTries: 5000` — two failed attempts and a
+successful third, with every attempt landing a row before its retry.
+
+`leads_backup` and the ledger are untouched by this: Append-or-Update and upsert
+both converge, and both deltas were exactly +6. Only the append-only log
+multiplies.
+
+**The cause is unknown and is not guessed.** n8n collapses a retried node into
+one `runData` entry and does not persist the intermediate attempts, so the two
+errors are gone. **Do not disable `retryOnFail` to make the symptom go away** —
+that trades a triplicated log row for a possibly missing one, the opposite of
+the trade the P08 hardening made everywhere else. Find the cause first.
+
 **Two things the sweep structurally cannot do**, both already known:
 
 - It cannot see a suppressed **re-inquiry** (TC-03's scenario). No second
@@ -257,8 +287,10 @@ without saying why is not.
 
 ### Credential — read-only Private Integration
 
-The sweep is **built and not activated**, because it has no credential yet, and
-the reason is worth stating precisely rather than as "we need a token".
+The sweep is **published, active and running on its 10-minute schedule** since
+2026-08-10. It got there by being given the one thing it was missing, and the
+reason it could not borrow that thing is worth keeping rather than deleting now
+that it is solved.
 
 The GoHighLevel access this project uses everywhere else is an **OAuth grant
 held by the Claude Code MCP client**. The token lives in that client's own
@@ -270,7 +302,9 @@ OAuth client entirely and has no path to that token. **An MCP session is not a
 runtime credential**, and treating it as one is the mistake this note exists to
 prevent.
 
-What n8n needs instead is its own credential. For a single sub-account the
+What n8n needed instead was its own credential, and it now has one: the n8n
+Header Auth credential **`GHL LeadFlow Demo — Opportunities Read Only`**, bound
+to `GHL: Recent Opportunities` and to nothing else. For a single sub-account the
 proportionate choice is a **Private Integration Token**:
 
 | Item | Value |
@@ -288,11 +322,20 @@ One scope is enough because the search response embeds
 screenshot.** Create it in the GHL location's Settings → Private Integrations
 and type it straight into the n8n credential.
 
-> **One parameter in that node is unverified.** The location is currently sent
-> as `location_id`. It has never been confirmed against a live `200`, because
-> no credential has existed to make the call. Confirm it on the first
-> credentialed run before trusting the node — the alternative spelling is
-> `locationId`, and the node carries a note saying so.
+> **That parameter is now settled: `location_id` is what GHL accepts.** The
+> first credentialed run returned the location's 13 opportunities, and GHL's own
+> `meta.nextPageUrl` in the response echoes `location_id=`. The alternative
+> spelling `locationId` was never needed and was not tested. The node's note was
+> rewritten from `UNVERIFIED` to record this.
+
+**The credential is never read from this repository, and must not be.** It was
+bound to the node over the n8n MCP API by name and id; its value was not opened,
+displayed, exported, logged or committed at any point, and nothing in an
+execution record contains it. The scope is `opportunities.readonly` **as
+created** — that it cannot write has not been *proved*, because proving it would
+mean attempting a write against the live CRM, which the sweep exists to never
+do. The load-bearing guarantee is structural: the workflow contains exactly one
+GHL node and it is a `GET`.
 
 ## 6. Known limitations of this build
 

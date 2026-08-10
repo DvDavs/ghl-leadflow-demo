@@ -4,12 +4,14 @@ Behavioural test matrix for the GHL leadflow demo. **This file is the status
 index.** Full input, expected outcome, and observed evidence for every executed
 scenario live under [`docs/evidence/`](docs/evidence/).
 
-**Nine scenarios pass against the currently deployed artifacts: TC-01, TC-02,
-TC-03, TC-09, TC-10, TC-11, TC-12, TC-18 and TC-19.** **TC-02b passed too, but
-against a GHL workflow that no longer exists.** **TC-17**, reconciliation, is
-built and inactive — it needs a read-only GoHighLevel credential that does not
-exist yet, so it is recorded as `BLOCKED`, not as a pass, because the query has
-never returned a live `200`.
+**Ten scenarios pass against the currently deployed artifacts: TC-01, TC-02,
+TC-03, TC-09, TC-10, TC-11, TC-12, TC-17, TC-18 and TC-19.** **TC-02b passed
+too, but against a GHL workflow that no longer exists.** **TC-17 passed on
+2026-08-10** — the sweep recovered six opportunities that had no backup row and
+a second run wrote nothing — **and the run that passed it also found a defect**:
+`Log Reconciled` writes three `run_log` rows per recovery instead of one. The
+pass covers recovery and idempotence; it does not claim the reconciliation log
+is accurate.
 
 This file was written before the implementation so the acceptance criteria
 cannot drift to match whatever happens to work. Where a pass rests on deduced
@@ -55,15 +57,16 @@ machine-checkable proof it shipped.
 | TC-14 | Appointment no-show or cancellation | BLOCKED (P-GHL, P-CAL) — deferred until TC-01 is stable | — | — |
 | TC-15 | Human review — AI declines to classify | BLOCKED (P-GHL, P-N8N) | — | — |
 | TC-16 | Human review — financial boundary | BLOCKED (P-GHL, P-N8N) | — | — |
-| TC-17 | **Reconciliation recovers a lost webhook** | BLOCKED — needs a read-only GHL Private Integration credential | — never executed; the query has never returned a live `200` | [reconciliation](docs/evidence/reconciliation-tests.md#tc-17--reconciliation-recovers-a-lost-webhook) |
+| TC-17 | **Reconciliation recovers a lost webhook** | PASS — six recovered, second run wrote nothing; one defect found in `run_log` | Sweep `LbfiJvlXEWvVGhzh` version `09f0c52c` (exec 45 recovery, exec 49 idempotence) | [reconciliation](docs/evidence/reconciliation-tests.md#tc-17--reconciliation-recovers-a-lost-webhook) |
 | TC-18 | Unauthorized webhook rejected — 401, no business write | PASS | P08 n8n `c1225347` (exec 37, wrong-value arm); the absent-secret arm's evidence is pre-`b162ad3f` and was **not** re-run | [security](docs/evidence/security-tests.md#tc-18--unauthorized-webhook-rejected) |
 | TC-19 | **Formula injection through the public form** — stored as literal text | PASS | P08 n8n `c1225347` (exec 35) | [security](docs/evidence/security-tests.md#tc-19--formula-injection-through-the-public-form) |
 
-Three things are weaker than this matrix alone suggests, and each is stated in
+Four things are weaker than this matrix alone suggests, and each is stated in
 its evidence file rather than buried: **TC-02b's pass no longer covers the
 deployed GHL workflow**; **the duplicate-opportunity guard has never been
-exercised** by any test; and **all evidence is sequential** — nothing here says
-anything about concurrency.
+exercised** by any test; **TC-17's pass came with a defect in the same run** —
+`run_log` overstates reconciliation three-fold, cause not yet known; and **all
+evidence is sequential** — nothing here says anything about concurrency.
 
 ## Prerequisites
 
