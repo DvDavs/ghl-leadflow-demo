@@ -29,11 +29,17 @@ script, the per-system fallbacks and the 10-minute pre-interview checklist are i
 [`docs/demo/runbook.md`](docs/demo/runbook.md); the leave-behind summary is
 [`docs/demo/one-page.md`](docs/demo/one-page.md).
 
-**What is not done is the offline half**, and the reason is one fact: the
-Playwright browser profile is authenticated to **GoHighLevel only**. The CRM
-screenshot exists; the n8n, Sheets and reconciliation captures and the recorded
-video all need sessions that profile does not have, and no credential was
-improvised to get them. See [`assets/demo/`](assets/demo/).
+**The offline half is three-fifths done.** Captured and sanitized: the CRM
+pipeline board, the n8n execution answering `200 processed` with its full
+correlation row, and the reconciliation sweep showing its 10-minute cadence and
+its 1-recovered / 9-already-known split. **Still blocked: the `leads_backup`
+and `needs_human` captures, and the video.** The two screenshots need a Google
+session in the browser Playwright drives — which is *its own instance with its
+own profile*, so signing in to an everyday Chrome window does not reach it. The
+video is blocked on that plus a second thing a login will not fix: recording is
+a Playwright context-creation option, and the MCP server exposes no way to
+start one mid-session. Nothing was faked to fill either gap. See
+[`assets/demo/`](assets/demo/).
 
 **Milestone 7 — failure, retry and human handoff (P08, closed out by P08B and
 P08C). Complete: the retry half and reconciliation are both built, published,
@@ -212,12 +218,12 @@ All 26, including the three ADRs, in
 ## Next 3 actions
 
 1. **Finish the demo fallback assets (#12, still In Progress).** The script,
-   the one-pager and two unassisted rehearsals are done — see
-   [`docs/demo/runbook.md`](docs/demo/runbook.md). What is left is the recorded
-   video and four of the five screenshots, all blocked on the same thing: the
-   Playwright browser profile is signed in to **GoHighLevel only**, and n8n
-   Cloud and Google both redirect it to a sign-in page. One manual step
-   unblocks all of it.
+   the one-pager, two unassisted rehearsals and three of five screenshots are
+   done — see [`docs/demo/runbook.md`](docs/demo/runbook.md) and
+   [`assets/demo/`](assets/demo/). What is left is the `leads_backup` and
+   `needs_human` captures, which need a Google session **in the browser
+   Playwright itself drives**, and the video, which additionally needs a
+   recording-enabled Playwright context or a human with a screen recorder.
 2. **Decide whether the duplicate-opportunity guard is worth chasing further.**
    TC-02b established the window is under 1.5 s and that the browser cannot
    get inside it. The honest options are to leave it `[DOCUMENTED]` and say so
