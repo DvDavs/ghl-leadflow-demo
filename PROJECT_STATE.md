@@ -30,8 +30,12 @@ Validation also stopped rejecting phone-only leads.
 **And a webhook that never arrives is no longer unrecoverable.** The sweep runs
 every 10 minutes against a read-only GHL credential; on its first live run it
 recovered the six opportunities that had sat in the CRM with no backup row, and
-its second run wrote nothing. It also found a defect in itself — see
-"Open risks".
+its second run wrote nothing. That run also found a defect in the sweep's own
+log: a retried write that was landing its row and *then* failing. It was
+diagnosed **as a post-write failure — the underlying error is still unknown** —
+and fixed by making the write converge instead of by disabling the retry.
+**Every write in the sweep is now idempotent**, and TC-17 was re-run against the
+fixed artifact.
 
 ## What is built and live
 
@@ -40,7 +44,7 @@ its second run wrote nothing. It also found a defect in itself — see
 | **GHL (P05, P07)** | Form → Contact → Opportunity → Pipeline runs live. 7 P0 custom fields, 5 P0 tags, `LeadFlow Demo Pipeline` (7 stages), the Service Inquiry form, and `Form to Opportunity` **v12** with the re-inquiry branch — all published. Pipeline, form and workflow are UI-only; no MCP write operation exists for any of the three |
 | **n8n ingress (P06)** | Webhook → allowlist normalization → shared-secret check → ledger claim → `leads_backup` (Append or Update on `eventId`) → ledger `completed`, with deterministic 401 / 422 / 200 / 200-duplicate / 202 responses and append-only `run_log` boundaries. Published and active |
 | **n8n reliability (P08)** | Bounded retry (3 attempts, 70s base, ×2, +0–20% jitter, 300s cap) on a database-persisted `Wait`; terminal `needs_human` handoff; operator-only append-only fault switch, left `off`; node-level retry on every write between the claim and a terminal state |
-| **Reconciliation (P08B)** | 12-node sweep **published, active, on a 10-minute schedule**. Reads `GET /opportunities/search` with a Header Auth credential holding a sub-account PIT scoped to `opportunities.readonly`; `location_id` is **accepted** by GHL, though not proven to be *read* — the sub-account token already implies the location. TC-17 passed: 6 recovered, second run wrote nothing |
+| **Reconciliation (P08B)** | 12-node sweep **published, active, on a 10-minute schedule**, active version `060c3ca1`. Reads `GET /opportunities/search` with a Header Auth credential holding a sub-account PIT scoped to `opportunities.readonly`; `location_id` is **accepted** by GHL, though not proven to be *read* — the sub-account token already implies the location. All three writes are idempotent: `leads_backup` Append-or-Update on `eventId`, ledger upsert on `eventId`, `run_log` Append-or-Update on `correlationId + eventId + step`. TC-17 passes on this version |
 | **Test harness (P08)** | Two manual-trigger-only n8n workflows: a sender that injects the secret at send time, and an evidence reader over the three sheet tabs, the ledger and the fault switch. Neither has a public trigger |
 
 Artifacts under [`n8n/workflows/`](n8n/workflows/) and
@@ -51,21 +55,19 @@ Artifacts under [`n8n/workflows/`](n8n/workflows/) and
 **Ten of twenty scenarios pass against the deployed artifacts:** TC-01, TC-02,
 TC-03, TC-09, TC-10, TC-11, TC-12, **TC-17**, TC-18, TC-19. **TC-02b passed
 against a GHL workflow that no longer exists** and needs re-running against v12.
-**TC-17's pass covers recovery and idempotence, not log accuracy** — the same
-run found the `run_log` triplication below. The remaining nine are `BLOCKED` or
-deliberately deferred. Per-row status, version coverage and evidence links:
+**TC-17 was re-run after its own defect was fixed**, and now covers recovery,
+idempotence and log accuracy. The remaining nine are `BLOCKED` or deliberately
+deferred. Per-row status, version coverage and evidence links:
 [`TEST_CASES.md`](TEST_CASES.md).
 
 ## Issues and project board
 
 The GitHub Project board (*GHL Leadflow Demo Sprint*) is the source of truth.
-**Read back after P08B, observed rather than assumed:** 17 items — **ten Done,
-#11 Ready, #12 Blocked, five Backlog**.
 
-**P08B closed #10** (failure, retry and observability) and moved it In Progress
-→ Done: TC-09 through TC-12 already passed, and TC-17, its last named residual,
-now passes too. **#11 moved Blocked → Ready** because #10 was its only stated
-dependency. #12 stays Blocked on its own dependency, not on this work.
+**#18 — *Fix reconciliation run_log triplication*** was opened for the defect
+TC-17 found, worked, and closed the same day. **#10 was not reopened**: it had
+already been closed on evidence that stands, and the log defect was a distinct,
+separately tracked fault.
 
 Re-read the board rather than trusting this section; the repository has twice
 been bitten by treating a change that *should* have landed as one that did.
@@ -87,11 +89,11 @@ been bitten by treating a change that *should* have landed as one that did.
 | Risk | Detail |
 |---|---|
 | **The duplicate-opportunity guard has never been exercised.** Configured and person-scoped, sitting as a backstop behind the `Find Opportunity` split. The event-scoped mitigation ADR-002 wanted still does not exist — `search-opportunity` cannot filter by `external_lead_id` | [ADR-002](docs/decisions/ADR-002-idempotency-strategy.md) "Consequences to watch" |
-| **All evidence is sequential.** Nothing anywhere in this repository says anything about concurrency | [`TEST_CASES.md`](TEST_CASES.md) |
+| **All evidence about the deployed system is sequential.** The one concurrency observation anywhere is a throwaway diagnostic: three simultaneous Google Sheets appends to one tab all reported success and only **one** row survived. Seen on the diagnostic's own writes, never on a production path — recorded as a question about the tool, not a claim about this system | [evidence](docs/evidence/reconciliation-tests.md#open-questions-this-run-leaves) |
 | **TC-12's hardened exhaustion branch is unexercised**, and TC-09, TC-18 and TC-19 cover active version `c1225347`, one publish before the deployed `4ab773e2` | [`TEST_CASES.md`](TEST_CASES.md) |
-| **`Log Reconciled` writes three `run_log` rows per recovery, not one.** Six recoveries left 18 rows. Node time 14–18 s each against `maxTries: 3 / waitBetweenTries: 5000` — two failed attempts that each still landed a row, then a success. **Cause unknown**: n8n does not persist a retried node's intermediate errors. `leads_backup` and the ledger are unaffected (both converge; both deltas were exactly +6). Do **not** disable `retryOnFail` to hide it | [evidence](docs/evidence/reconciliation-tests.md) · [operations](docs/n8n/operations.md) §5 |
-| **TC-17 has no unconsumed test data left.** The six orphaned opportunities were the scenario's fixtures and run 1 recovered all six. Re-running it needs a fresh opportunity whose webhook does not reach n8n | [evidence](docs/evidence/reconciliation-tests.md) |
-| **`README.md` is now factually wrong and is the first thing a public reader sees.** Its banner still says reconciliation is blocked on a missing credential, the sweep is "built and published, inactive", and "nine of twenty" scenarios pass. P08B's scope was explicitly limited to four files, so it was left untouched **deliberately, not by oversight** — but it contradicts this file and must be corrected in a follow-up commit | `README.md` lines 6, 9, 12–14, 82, 176 |
+| **`Log Reconciled`'s post-write failure is fixed but not explained.** Two of three attempts committed their `run_log` row and then failed; the write is now Append-or-Update on `correlationId + eventId + step`, so it converges. **The error itself is still unknown** — n8n discards a retried node's intermediate errors, and five isolated single-attempt appends all succeeded. It recurred during the passing re-run (13.5 s for one recovery) and still produced one row | [evidence](docs/evidence/reconciliation-tests.md#diagnosis--three-attempts-three-commits-one-reported-success) · [operations](docs/n8n/operations.md) §5 |
+| **TC-17 has no unconsumed test data left**, for the second time. `Noa Feldman` was the re-run's fixture and execution 59 consumed it. Re-running needs another fictional opportunity created while the n8n ingress workflow is deactivated — the GHL webhook fires on *Opportunity Created*, so the API route does not avoid it | [evidence](docs/evidence/reconciliation-tests.md#ready-made-test-data--consumed-twice-over) |
+| **A GHL contact and opportunity now exist that no form created.** `Noa Feldman` was made through the API as the TC-17 re-run fixture, so its `source` is empty where a form lead carries `GHL Demo Form`. Filter on the contact tag `p08b2-fixture` before a demo | [evidence](docs/evidence/reconciliation-tests.md#tc-17-re-run--the-fix-under-the-same-failure) |
 | **`location_id` is accepted by GHL but not proven to be read.** The sub-account token already implies the location, so the parameter may be ignored; `meta.nextPageUrl` echoing it proves an echo, not a parse. No control run was made. Settled for this sweep, open as a general claim — do not quote it as "GHL's opportunity search takes `location_id`" | [evidence](docs/evidence/reconciliation-tests.md) |
 
 **Silent-loss paths still open**
@@ -109,6 +111,7 @@ been bitten by treating a change that *should* have landed as one that did.
 | Risk | Detail |
 |---|---|
 | **Saving a workflow is not publishing it** — in n8n *and* in GHL. A security fix looked applied for over an hour while production served the old version. Compare `activeVersionId` against `versionId`; for a GHL workflow the version number is the only machine-checkable proof an edit shipped | [operations](docs/n8n/operations.md) §1 |
+| **Publishing with no `versionId` ships whatever the draft has drifted into — including somebody else's open editor tab.** Reactivating the ingress workflow after a 3-minute deactivation published a draft carrying **18 autosaved browser-session versions**, replacing the evidenced `4ab773e2`. No execution ran on it and the active version was restored explicitly, but the rule is now: record `activeVersionId` before deactivating and republish that exact id | [operations](docs/n8n/operations.md) §1 |
 | **`cellFormat: RAW` must survive every future edit to a Sheets node.** Re-picking a node in the UI can reset it to the `USER_ENTERED` default, silently re-opening formula injection from the public form | [setup](docs/n8n/setup.md) §5 |
 | **Vendor documentation was wrong twice, and both errors were load-bearing.** Custom Data arrives nested under `customData`; `contact_id` does exist at the root despite the example omitting it. The first error cost six diagnostic deliveries. GHL also misspells its own field as `pipleline_stage` | [setup](docs/n8n/setup.md) |
 | **The retry attempt counter depends on an undocumented n8n resolution rule** (`$('Retry Decision').first()`) — verified live across three attempts in TC-12, but not guaranteed. If the ladder ever repeats attempt 1, check this first | [operations](docs/n8n/operations.md) §6 |
@@ -127,7 +130,7 @@ a demo. Cleanup pending an explicit decision; nothing has been deleted.
 
 | Risk | Detail |
 |---|---|
-| **Nine fictional diagnostic contacts pollute the demo location.** All nine now have a `leads_backup` row: three fired their webhook normally (Valeria Cruz, the `=1+1 Testcase` fixture, Priya Chandran) and **six were recovered by the sweep** on 2026-08-10, so they carry `lastAction=reconciled` | [evidence](docs/evidence/reconciliation-tests.md) |
+| **Ten fictional diagnostic contacts pollute the demo location.** All ten have a `leads_backup` row: three fired their webhook normally (Valeria Cruz, the `=1+1 Testcase` fixture, Priya Chandran) and **seven were recovered by the sweep** on 2026-08-10 — six on its first run, then `Noa Feldman` on the re-run — so they carry `lastAction=reconciled` | [evidence](docs/evidence/reconciliation-tests.md) |
 | **P08 fixtures sit in the durable backup.** `p08-regress-alpha`, `p08-tc10b-transient` and `p08-tc19-formula` have `leads_backup` rows; `p08-tc12-persistent` and `p08-tc12b-persistent` are terminal `failed` with none. All fictional, all carrying `source = P08 Internal Test Harness` — the column to filter on before a demo | [operations](docs/n8n/operations.md) §6 |
 | **The trial location's owner First/Last Name is still real** — not committed to git, not part of the interview-facing fixture, so not blocking, but still open after three UI correction attempts | [history](docs/history/ghl-leg-p05-p07.md) |
 
@@ -152,19 +155,19 @@ All 26, including the three ADRs, in
 
 ## Next 3 actions
 
-1. **Find out why `Log Reconciled` needs three attempts.** It is the one open
-   defect in an otherwise passing reliability story, and the retry errors are
-   not in the execution record — so this needs a deliberate reproduction (force
-   one recovery and watch the node live) rather than more log reading. Resist
-   the tempting non-fix of turning `retryOnFail` off.
-2. **Re-run TC-02b against GHL v12, and exercise the duplicate-opportunity guard
+1. **Re-run TC-02b against GHL v12, and exercise the duplicate-opportunity guard
    for real.** Playwright is now available, so the public form can finally be
    submitted. With re-entry on, a fast double submission can reach
    `Create Opportunity` twice for one contact — the first test that would
    actually exercise the guard.
-3. **Close the `inquiry_count` null on pre-P07 contacts**, and clean up the
+2. **Close the `inquiry_count` null on pre-P07 contacts**, and clean up the
    fixture noise: the orphaned `retry_scheduled` ledger row, the `failed` row
    with no `needs_human` row, and the `p08-` rows in `leads_backup`.
+3. **Decide whether the unexplained Sheets post-write failure is worth chasing.**
+   The sweep now converges under it, so it costs correctness nothing — but it is
+   the one thing in the reliability story with no named cause, and an interviewer
+   is entitled to ask. Capturing it needs the error at the moment it happens,
+   which n8n's retry deliberately throws away.
 
 ## Demo readiness
 
@@ -185,15 +188,23 @@ opportunities had sat in the CRM for a day with no backup row, and the sweep's
 first live run recovered all six while leaving the three healthy ones alone.
 Running it again wrote nothing at all.
 
+**That run also failed at something, and the repair is the better story.** Its
+log wrote each recovery three times. The trio timestamps showed three separate
+attempts seven seconds apart, and the last one matching the run n8n called
+successful — so the write was landing and *then* failing. The fix was to make
+the log write idempotent rather than to switch the retry off, and it was proven
+under the failure itself: the re-run hit the same 13.5-second retry and still
+produced exactly one row.
+
 **What keeps this PARTIAL rather than READY:** TC-02b still does not cover the
 deployed GHL workflow, the duplicate-opportunity guard has never been exercised,
-all evidence is sequential, and a re-inquiry writes no backup row *and* creates
-no opportunity — a gap the sweep structurally cannot see. Everything else weaker
-than a clean matrix would suggest is named under "Open risks" rather than buried
-— including that P08's own tests found three defects, one of which produced a
-`failed` ledger row with nobody told (that row is still in the ledger), and that
-P08B's own passing test found a fourth: the sweep's log counts each recovery
-three times.
+all evidence about the deployed system is sequential, and a re-inquiry writes no
+backup row *and* creates no opportunity — a gap the sweep structurally cannot
+see. Everything else weaker than a clean matrix would suggest is named under
+"Open risks" rather than buried — including that P08's own tests found three
+defects, one of which produced a `failed` ledger row with nobody told (that row
+is still in the ledger), and that the error behind the reconciliation log defect
+is fixed-around rather than understood.
 
 Full reading route: [`docs/INDEX.md`](docs/INDEX.md).
 </content>

@@ -20,7 +20,7 @@ verified by reading the workflow's nodes back through the API; the read
 returned the *draft*, so the fix looked live. An execution more than an hour
 later still ran the old code, which is the only reason it was caught.
 
-Two rules follow:
+Three rules follow:
 
 - **Verify against the active version, not the workflow object.** Compare
   `activeVersionId` with the workflow's current `versionId`. If they differ,
@@ -28,6 +28,18 @@ Two rules follow:
 - **A test proves the version it ran against.** After publishing, any test
   whose evidence predates the publish covers the old artifact. Re-run enough
   of the suite to cover what changed.
+- **Publishing with no `versionId` ships the draft, whatever the draft has
+  become.** The gap between draft and active is not only *your* unpublished
+  edits. **Observed 2026-08-10:** the ingress workflow was deactivated for a few
+  minutes to stage a TC-17 fixture, and reactivating it published the draft —
+  which by then held **18 autosaved versions from a browser editor session
+  nobody had published**, and so silently replaced the evidenced
+  `4ab773e2` artifact. Nothing ran on it (no execution started in that window)
+  and the active version was put back explicitly, but the rule is now
+  structural: **record `activeVersionId` before deactivating, and republish that
+  exact id** — `publish` takes one, and passing it leaves the draft alone.
+  Autosaved versions are labelled `autosaved: true` and carry no `(via MCP)`
+  author suffix, which is how a browser session is told apart from an API edit.
 
 A GoHighLevel workflow edit can sit unpublished in exactly the same way.
 `get-workflow` exposes only id, name, status and **version** — no step detail —
@@ -205,9 +217,11 @@ Every 10 Minutes
        → Ledger: Look Up Candidate
        → Missing From Ledger?   absent, or not completed and quiet 30min+
        → Needs Recovery?  no  → Already Known - Skip
-                          yes → Sheets: leads_backup (Append or Update)
-                                → Log Reconciled  (outcome=reconciled)
-                                → Ledger: Record Recovery (status=completed)
+                          yes → Sheets: leads_backup (Append or Update on eventId)
+                                → Log Reconciled  (Append or Update on
+                                   correlationId + eventId + step,
+                                   outcome=reconciled)
+                                → Ledger: Record Recovery (upsert, status=completed)
 ```
 
 Four design points, each of which is a way this could have been got wrong:
@@ -229,12 +243,17 @@ Four design points, each of which is a way this could have been got wrong:
 - **A recovered `failed` event keeps its `needs_human` row open.** Recovery
   writes the backup row that a human was told was missing; it does not decide
   that the human is finished.
+- **Every write in the sweep is idempotent, and the log took a defect to get
+  there.** `leads_backup` is Append-or-Update on `eventId`, the ledger is an
+  upsert on `eventId`, and `Log Reconciled` is now Append-or-Update on
+  `correlationId + eventId + step`. It used to be a plain append, and that is
+  what triplicated the log — see below.
 - **Safe to run twice**, by construction and twice over: the first run writes a
-  `completed` ledger row that every later run sees, and the backup write is
-  Append-or-Update on `eventId` regardless. **Now measured, not just argued** —
-  TC-17's second run sent all nine candidates down the skip branch and never
-  invoked a single write node
-  ([evidence](../evidence/reconciliation-tests.md#run-2--idempotence-execution-49-011805--011808-utc-success)).
+  `completed` ledger row that every later run sees, and every write converges
+  regardless. **Measured twice, not argued** — the second run of each TC-17
+  execution sent every candidate down the skip branch and never invoked a single
+  write node
+  ([evidence](../evidence/reconciliation-tests.md#run-2--idempotence-execution-61)).
 - **The 24-hour lookback is much wider than the 10-minute schedule.** A sweep
   that only looked back one interval would miss anything falling in a window
   where n8n itself was down — which is precisely when webhooks go missing.
@@ -258,23 +277,47 @@ recovered row and a delivered row therefore do not sort or filter alike on
 either column. Full table in
 [evidence](../evidence/reconciliation-tests.md#what-a-recovered-row-does-not-carry).
 
-### Open defect — `Log Reconciled` writes three rows per recovery
+### Fixed — `Log Reconciled` used to write three rows per recovery
 
 TC-17's first live run recovered six events and left **18** `reconciled` rows in
-`run_log`, exactly three per event. The node ran once per recovery and reported
-success, taking 14–18 s each time against a configured
-`retryOnFail / maxTries: 3 / waitBetweenTries: 5000` — two failed attempts and a
-successful third, with every attempt landing a row before its retry.
+`run_log`, exactly three per event, while `leads_backup` and the ledger were
+both exactly +6.
 
-`leads_backup` and the ledger are untouched by this: Append-or-Update and upsert
-both converge, and both deltas were exactly +6. Only the append-only log
-multiplies.
+**What the retry actually did.** The three rows of each trio carry timestamps
+about **7 seconds apart**, and the last of each trio is byte-identical to the
+timestamp n8n recorded for the node's one successful run. Seven seconds is one
+attempt plus the configured `waitBetweenTries: 5000`. So the node made three
+attempts, **each attempt committed its row to Google Sheets, and only the third
+reported success.** The write lands and *then* the attempt fails — a post-write
+failure — and retrying a plain append duplicates what already exists.
 
-**The cause is unknown and is not guessed.** n8n collapses a retried node into
-one `runData` entry and does not persist the intermediate attempts, so the two
-errors are gone. **Do not disable `retryOnFail` to make the symptom go away** —
-that trades a triplicated log row for a possibly missing one, the opposite of
-the trade the P08 hardening made everywhere else. Find the cause first.
+**The error the first two attempts returned is still unknown, and is not
+guessed.** n8n collapses a retried node into one `runData` entry and does not
+persist intermediate attempts. A temporary manual-trigger workflow reproduced
+the node in isolation — same document, tab, column mapping and `cellFormat`,
+one fictional fixture, `retryOnFail` off so a single attempt could be observed —
+and **five single appends all succeeded**, three of them fired concurrently. The
+failure is real but not reproducible on demand.
+
+**The fix is the write, not the retry.** `retryOnFail` stays on: turning it off
+would trade a triplicated log row for a possibly missing one, the opposite of
+the trade the P08 hardening made everywhere else. Instead the append became an
+**Append or Update** keyed on `correlationId + eventId + step`, so a repeated
+attempt updates the row it already wrote.
+
+**Why that key and not a simpler one:**
+
+| Candidate key | Why it is wrong |
+|---|---|
+| `eventId` alone | `run_log` holds several boundary rows for one event — the ingress workflow writes `claim`, `leads_backup` and `complete` — so this would overwrite them |
+| `correlationId` alone | The sweep's `correlationId` is `n8n:sweep:<executionId>`, one value for the **whole run**. Six recoveries in one run would collapse into one row |
+| `correlationId + eventId` | Correct today, because the sweep has exactly one log boundary. It would break silently the day a second one is added |
+| `correlationId + eventId + step` | **Chosen.** Unique per row the sweep writes, and structurally unable to collide with an ingress row, whose `correlationId` is `n8n:<executionId>` |
+
+**Verified against the fix, not assumed:** the TC-17 re-run's `Log Reconciled`
+still took 13.5 s for a single recovery — the same post-write failure happened
+again — and `run_log` still gained exactly **one** `reconciled` row
+([evidence](../evidence/reconciliation-tests.md#tc-17-re-run--the-fix-under-the-same-failure)).
 
 **Two things the sweep structurally cannot do**, both already known:
 

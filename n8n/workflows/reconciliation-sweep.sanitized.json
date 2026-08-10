@@ -377,7 +377,7 @@
         96
       ],
       "parameters": {
-        "operation": "append",
+        "operation": "appendOrUpdate",
         "documentId": {
           "__rl": true,
           "value": "REPLACE_WITH_SHEET_ID",
@@ -390,7 +390,11 @@
         },
         "columns": {
           "mappingMode": "defineBelow",
-          "matchingColumns": [],
+          "matchingColumns": [
+            "correlationId",
+            "eventId",
+            "step"
+          ],
           "value": {
             "timestamp": "={{ $now.toISO() }}",
             "correlationId": "={{ $('Missing From Ledger?').first().json.correlationId }}",
@@ -513,7 +517,7 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
-      "notes": "KNOWN DEFECT (TC-17, exec 45): this node appended THREE identical reconciled rows per recovered event -- 18 run_log rows for 6 recoveries. Node time was ~17s each, consistent with two failed attempts plus the 5s waitBetweenTries before a third that succeeded; every attempt still landed a row. n8n does not persist the intermediate retry errors, so the cause is not yet known. leads_backup and the ledger are unaffected (Append-or-Update and upsert both converge). Do not change retryOnFail blind: dropping it trades a triplicated log for a possibly missing one."
+      "notes": "IDEMPOTENT LOG WRITE. Append or Update matched on correlationId + eventId + step. It is an Append-or-Update rather than a plain append because of a defect TC-17 found: as a plain append this node wrote THREE run_log rows per recovery, 18 for 6 recoveries. The three rows of each trio are ~7s apart -- two attempts plus the 5s waitBetweenTries -- and the last one matches the timestamp n8n recorded for the successful run, so attempts 1 and 2 each committed their row to Sheets and THEN failed. That is a post-write failure, and retrying a non-idempotent append duplicates it. The error the first two attempts returned is still unknown: n8n does not persist a retried node intermediate errors, and five isolated single-attempt appends to this same tab all succeeded. retryOnFail is deliberately left ON -- the write was made idempotent instead, exactly as leads_backup (Append-or-Update on eventId) and the ledger (upsert) already were. The key needs all three columns: correlationId is per sweep RUN and shared by every recovery in it, eventId separates the recoveries, and step stops the key from ever overwriting another log boundary of the same event -- the ingress workflow writes three rows that share one correlationId and eventId."
     },
     {
       "id": "63c68786-ad31-4586-a458-3940d0d7ef2c",

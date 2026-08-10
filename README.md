@@ -3,18 +3,19 @@
 A design-first lead pipeline connecting a lead source, a **GoHighLevel** CRM
 location, an **n8n** automation layer, and a **Google Sheets** backup.
 
-> ## Status: golden path live, reliability evidenced, reconciliation blocked
+> ## Status: golden path live, reliability evidenced, reconciliation running
 >
 > The GHL → n8n → Sheets flow runs end to end against live GoHighLevel and n8n
-> Cloud resources. **Nine of twenty test scenarios pass** against the deployed
-> artifacts (TC-01, TC-02, TC-03, TC-09–TC-12, TC-18, TC-19). A downstream
-> failure retries on a bounded ladder and converges on one record, or reaches a
-> logged terminal state with a human handoff. **TC-17 — reconciliation — is the
-> next closure**: the sweep is built and published, but it cannot run without a
-> read-only GHL credential it does not have yet.
+> Cloud resources. A downstream failure retries on a bounded ladder and
+> converges on one record, or reaches a logged terminal state with a human
+> handoff. **A webhook that never arrives is recovered too**: a reconciliation
+> sweep runs on a schedule against a read-only GHL credential, and TC-17 passes
+> against it — recovery, idempotence and log accuracy.
 >
-> Current state: [`PROJECT_STATE.md`](PROJECT_STATE.md) · Test matrix:
-> [`TEST_CASES.md`](TEST_CASES.md).
+> Scenario coverage is not summarized here on purpose, because a number in a
+> banner goes stale. **[`TEST_CASES.md`](TEST_CASES.md) is the status matrix and
+> [`PROJECT_STATE.md`](PROJECT_STATE.md) is the current state** — those two are
+> the source of truth, including for what is still open.
 
 ---
 
@@ -78,8 +79,8 @@ Lead source  →  GoHighLevel contact  →  Opportunity in pipeline
 | GHL Workflow → outbound webhook | **Live** — `Form to Opportunity` v12 |
 | n8n ingress: validate → dedup → backup | **Live**, evidenced by TC-01, TC-02, TC-09, TC-18, TC-19 |
 | Downstream failure → retry → terminal handoff | **Live**, evidenced by TC-10, TC-11, TC-12 |
+| Missing webhook → scheduled reconciliation sweep | **Live and active**, evidenced by TC-17 |
 | AI enrichment | **Designed**, not built |
-| Reconciliation sweep | **Built and published, inactive** — blocked on a credential (TC-17) |
 
 Four-service routing, appointment booking, and AI enrichment are designed for
 and diagrammed, but they are **not** in the first path. They are added only once
@@ -173,8 +174,8 @@ exercise it without a live form submission,
 [`scripts/replay-webhook.ps1`](scripts/replay-webhook.ps1) replays a fixture
 payload against the same webhook, and the manual-trigger test harness in
 [`docs/n8n/testing.md`](docs/n8n/testing.md) covers each scenario end to end.
-Reconciliation (TC-17) cannot run yet — see [`PROJECT_STATE.md`](PROJECT_STATE.md)
-*Next 3 actions*.
+The reconciliation sweep runs on its own schedule and can also be triggered
+manually; [`docs/n8n/operations.md`](docs/n8n/operations.md) §5 describes it.
 
 ## Reading the claims in this repository
 
@@ -185,8 +186,9 @@ Language is used precisely and deliberately throughout:
 - **"Not detected"** — not found in the locations inspected. Never "does not exist".
 - **"Designed"** — decided and written down. **Not built, and not tested.**
 
-The golden path and its retry/terminal-handoff behaviour are now **verified**
-against nine passing test cases. Four-service routing, appointment booking, AI
-enrichment, and an active reconciliation sweep remain **designed** — see
-[`PROJECT_STATE.md`](PROJECT_STATE.md) for the full list of open risks and
-blockers.
+The golden path, its retry and terminal-handoff behaviour, and the
+reconciliation sweep are **verified** — each against a row in
+[`TEST_CASES.md`](TEST_CASES.md) that names the artifact version it ran on.
+Four-service routing, appointment booking and AI enrichment remain
+**designed**. [`PROJECT_STATE.md`](PROJECT_STATE.md) carries the full list of
+open risks and blockers, including the ones a passing matrix hides.

@@ -6,12 +6,16 @@ scenario live under [`docs/evidence/`](docs/evidence/).
 
 **Ten scenarios pass against the currently deployed artifacts: TC-01, TC-02,
 TC-03, TC-09, TC-10, TC-11, TC-12, TC-17, TC-18 and TC-19.** **TC-02b passed
-too, but against a GHL workflow that no longer exists.** **TC-17 passed on
-2026-08-10** — the sweep recovered six opportunities that had no backup row and
-a second run wrote nothing — **and the run that passed it also found a defect**:
-`Log Reconciled` writes three `run_log` rows per recovery instead of one. The
-pass covers recovery and idempotence; it does not claim the reconciliation log
-is accurate.
+too, but against a GHL workflow that no longer exists.**
+
+**TC-17 was run twice on 2026-08-10.** Its first pass recovered six
+opportunities that had no backup row and found a defect in the same run —
+`Log Reconciled` wrote three `run_log` rows per recovery. That defect was
+diagnosed as a post-write failure retried against a non-idempotent append,
+fixed, and TC-17 re-run against the fixed artifact with a fresh fixture: **+1
+backup row, +1 ledger `completed`, +1 `run_log reconciled`, and a second run
+that wrote nothing.** The pass now covers recovery, idempotence **and** log
+accuracy.
 
 This file was written before the implementation so the acceptance criteria
 cannot drift to match whatever happens to work. Where a pass rests on deduced
@@ -57,16 +61,20 @@ machine-checkable proof it shipped.
 | TC-14 | Appointment no-show or cancellation | BLOCKED (P-GHL, P-CAL) — deferred until TC-01 is stable | — | — |
 | TC-15 | Human review — AI declines to classify | BLOCKED (P-GHL, P-N8N) | — | — |
 | TC-16 | Human review — financial boundary | BLOCKED (P-GHL, P-N8N) | — | — |
-| TC-17 | **Reconciliation recovers a lost webhook** | PASS — six recovered, second run wrote nothing; one defect found in `run_log` | Reconciliation sweep, exec 45 (recovery) and exec 49 (idempotence). Active version `90830f62` differs from the runs only in two nodes' `notes` text, which n8n does not execute | [reconciliation](docs/evidence/reconciliation-tests.md#tc-17--reconciliation-recovers-a-lost-webhook) |
+| TC-17 | **Reconciliation recovers a lost webhook** | PASS — one recovered, exactly one row in each of the three stores, second run wrote nothing | Reconciliation sweep **`060c3ca1`**, exec 59 (recovery) and exec 61 (idempotence) — the exact draft published straight afterwards. The earlier exec 45 / 49 pass covered `90830f62`, which is **no longer deployed** | [reconciliation](docs/evidence/reconciliation-tests.md#tc-17-re-run--the-fix-under-the-same-failure) |
 | TC-18 | Unauthorized webhook rejected — 401, no business write | PASS | P08 n8n `c1225347` (exec 37, wrong-value arm); the absent-secret arm's evidence is pre-`b162ad3f` and was **not** re-run | [security](docs/evidence/security-tests.md#tc-18--unauthorized-webhook-rejected) |
 | TC-19 | **Formula injection through the public form** — stored as literal text | PASS | P08 n8n `c1225347` (exec 35) | [security](docs/evidence/security-tests.md#tc-19--formula-injection-through-the-public-form) |
 
 Four things are weaker than this matrix alone suggests, and each is stated in
 its evidence file rather than buried: **TC-02b's pass no longer covers the
 deployed GHL workflow**; **the duplicate-opportunity guard has never been
-exercised** by any test; **TC-17's pass came with a defect in the same run** —
-`run_log` overstates reconciliation three-fold, cause not yet known; and **all
-evidence is sequential** — nothing here says anything about concurrency.
+exercised** by any test; **the error behind TC-17's post-write failure is still
+unknown** — the fix makes the write converge under it rather than prevent it,
+and it recurred during the passing re-run; and **all evidence here is
+sequential.** The one concurrency observation this repository has is a
+throwaway diagnostic losing two of three simultaneous Sheets appends
+([reconciliation](docs/evidence/reconciliation-tests.md#open-questions-this-run-leaves)) —
+that is a question about a tool, not a tested claim about any deployed path.
 
 ## Prerequisites
 

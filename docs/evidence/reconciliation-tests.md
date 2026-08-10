@@ -14,9 +14,10 @@ Related evidence files:
 
 ## TC-17 — Reconciliation recovers a lost webhook
 
-**Status: PASS — executed 2026-08-10 against the live sweep. One defect found
-and recorded below; it does not affect recovery, only the log that describes
-it.**
+**Status: PASS — executed 2026-08-10 against the live sweep, then re-run the
+same day after the defect that first run exposed was diagnosed and fixed. The
+first run is kept below in full, because how the defect was found matters as
+much as that it is gone.**
 
 **Input.** An opportunity created in GHL whose outbound webhook never reached
 n8n. Six such opportunities were already sitting in the demo location.
@@ -39,11 +40,11 @@ Only*, which holds a sub-account Private Integration Token scoped to
 and id; its value was never read, displayed, exported or logged.
 
 **Version the pass covers.** Both runs executed the node graph as it stood
-immediately after the credential was bound. The sweep was published afterwards
-and the active version is now `90830f62`. The only changes between the runs and
-that version are `notes` text on two nodes — documentation n8n does not execute
-— so the pass covers the deployed behaviour. Any future parameter or code change
-puts that back in doubt and needs a re-run.
+immediately after the credential was bound, which was published as `90830f62`.
+**That version is no longer deployed** — the fix below replaced it. The recovery
+and idempotence assertions were re-established against the current active
+version `060c3ca1` in the re-run further down; the two runs recorded here now
+document how the defect was found, not what production does.
 
 ### The location parameter — accepted, but not proven to be *read*
 
@@ -150,38 +151,168 @@ assumed absence:
 
 ---
 
-## Defect found by this test — `Log Reconciled` triples its rows
+## Defect found by this test — `Log Reconciled` tripled its rows
 
 **Six recoveries produced 18 `reconciled` rows in `run_log`, not six** — rows
-53–70, exactly three per recovered event, each trio 6–8 seconds apart and
-carrying identical content.
+53–70, exactly three per recovered event.
 
 `Log Reconciled` appears **six** times in the execution's `runData`, once per
-recovery, each with `executionStatus: "success"` and an execution time of
-14–18 s. The node is configured `retryOnFail: true, maxTries: 3,
-waitBetweenTries: 5000`. Three attempts at roughly 2 s each plus two 5 s waits
-accounts for that time, and every attempt landed a row before the run was
-retried.
+recovery, each with `executionStatus: "success"`, **one output item**, and an
+execution time of 14–18 s. The node was configured `operation: append`,
+`retryOnFail: true, maxTries: 3, waitBetweenTries: 5000`.
 
-**The cause is not yet known, and is deliberately not guessed here.** n8n
-collapses a retried node into a single `runData` entry and does not persist the
-intermediate attempts, so the errors that triggered the two retries are not
-recoverable from the execution record.
+### Diagnosis — three attempts, three commits, one reported success
 
-**What it does and does not damage:**
+The trio timestamps are the evidence, and they were read out of the sheet rather
+than reasoned about. Every recovered event's three rows are spaced ~7 seconds
+apart:
 
-- `leads_backup` is unaffected — Append-or-Update on `eventId` converges, and
-  the observed delta is exactly +6.
-- The ledger is unaffected — the write is an upsert, and the observed delta is
-  exactly +6.
-- `run_log` is append-only by design, so it has no such convergence. It now
-  overstates reconciliation three-fold. **A log that overcounts is a log you
-  cannot count from**, which is the whole point of that tab.
+| Event (last 8 of `opportunityId`) | Three `timestamp` values |
+|---|---|
+| `NgrXI7I4` | `19:09:10.851`, `19:09:17.794`, `19:09:25.233` |
+| `Q76bW6wi` | `19:09:31.747`, `19:09:39.152`, `19:09:46.058` |
+| `JhvPTGKE` | `19:09:52.111`, `19:09:59.539`, `19:10:06.467` |
+| `Qx9Hrtg0` | `19:10:11.776`, `19:10:19.712`, `19:10:26.279` |
+| `NGkZdIhy` | `19:10:31.440`, `19:10:38.383`, `19:10:44.888` |
+| `yFeCngi2` | `19:10:50.247`, `19:10:58.240`, `19:11:05.827` |
 
-**Do not "fix" this by turning `retryOnFail` off.** That trades a triplicated
-log entry for a possibly missing one, which is the opposite of the trade P08's
-hardening deliberately made. The fix needs the cause first. Recorded on the node
-itself and in [`../n8n/operations.md`](../n8n/operations.md) §5.
+Two facts follow, and neither needs an assumption:
+
+1. **The three rows were written by three separate attempts, not by one attempt
+   emitting three items.** The column is `{{ $now.toISO() }}`, so identical
+   timestamps would mean one evaluation. They differ by ~7 s — one attempt plus
+   the configured 5 s `waitBetweenTries`.
+2. **The failure happens *after* the write.** The **last** timestamp of each
+   trio is byte-identical to the one output item n8n recorded for that node run
+   — for example `2026-08-09T19:09:25.233-06:00`. So attempts 1 and 2 each
+   committed their row to Google Sheets and then failed, and only attempt 3
+   reported success.
+
+That is a **post-write failure against a non-idempotent write**. `retryOnFail`
+was doing exactly what it was told; the defect was that the operation it guarded
+had no idempotency key, unlike `leads_backup` (Append-or-Update on `eventId`)
+and the ledger (upsert), which is precisely why both of those converged on +6.
+
+### What was reproduced, and what was not
+
+A temporary manual-trigger workflow (no public surface, deleted afterwards) ran
+`Log Reconciled` in isolation: same document, same `run_log` tab, same
+`defineBelow` mapping, same `cellFormat: RAW`, one fictional fixture, and
+`retryOnFail` **off** so a single attempt could be observed, with a row count
+read before and after.
+
+- **Five single-attempt appends, five successes, zero errors** (executions
+  53–57). Each landed exactly one row in ~1.5 s.
+- Three of those five were fired **concurrently** to try to force the failure.
+  They did not fail — but only **one** of the three rows survived, so a
+  concurrency finding fell out of it that is recorded under "Open questions"
+  below rather than folded into this result.
+
+**The error attempts 1 and 2 returned is therefore still unknown, and is not
+guessed.** n8n collapses a retried node into a single `runData` entry and does
+not persist intermediate attempts, and the isolated reproduction did not fail.
+What *is* established is the shape: the write commits, then the attempt fails.
+That is enough to choose the fix, because the fix does not depend on which error
+it was.
+
+### The fix
+
+`Log Reconciled` became an **Append or Update** matched on
+`correlationId + eventId + step`. `retryOnFail: true / maxTries: 3 /
+waitBetweenTries: 5000` is unchanged — deliberately.
+
+The key is composite because no single column is both stable and exclusive:
+
+| Candidate | Verdict |
+|---|---|
+| `eventId` | **Rejected.** `run_log` holds several boundary rows per event; the ingress workflow alone writes `claim`, `leads_backup` and `complete`. Matching on `eventId` would overwrite them |
+| `correlationId` | **Rejected.** The sweep's is `n8n:sweep:<executionId>` — one value for the whole run. Six recoveries would collapse into one row |
+| `correlationId + eventId` | Correct today only because the sweep has exactly one log boundary; it would break the day a second is added |
+| `correlationId + eventId + step` | **Chosen.** Unique per row the sweep writes, and structurally unable to hit an ingress row, whose `correlationId` is `n8n:<executionId>` |
+
+---
+
+## TC-17 re-run — the fix under the same failure
+
+**Status: PASS, 2026-08-10.** Executions **59** (recovery) and **61**
+(idempotence), against active version `060c3ca1` — the exact draft that was
+published immediately afterwards, with no edit in between.
+
+### The fixture, and how the webhook was made to not arrive
+
+TC-17's original six fixtures were consumed by run 1, so a fresh one was
+created: contact `Noa Feldman` (`noa.feldman@example.com`, `+12025550137`,
+tagged `p08b2-fixture`, `source = P08B2 Internal Test Harness`) and one
+opportunity `Noa Feldman - Real Estate` in `LeadFlow Demo Pipeline`, created
+through the GHL API at `2026-08-10T01:49:15.630Z`.
+
+Creating it through the API does **not** dodge the webhook —
+`LeadFlow Demo — Opportunity to n8n` triggers on *Opportunity Created*, not on
+form submission. So the loss was staged on the n8n side instead: the ingress
+workflow was **deactivated** for the few minutes around creation, and the
+webhook had nothing to reach. It was reactivated before this evidence was
+written. That reactivation had a consequence of its own, recorded in
+[`../n8n/operations.md`](../n8n/operations.md) §1.
+
+**Positive evidence the event never arrived**, read before the sweep ran: the
+derived `ghl:opportunity-created:hD95n…` was absent from the
+ledger, from `leads_backup` and from `run_log`.
+
+### Run 1 — recovery (execution 59, 01:51:10 → 01:51:30 UTC, success)
+
+GHL returned 14 opportunities; `Select Candidates` kept **10**. Nine reached
+`Already Known - Skip` with `ledgerFound: true`, `ledgerStatus: "completed"`.
+One was recovered.
+
+Measured with a read-only counter over the three stores, before and after:
+
+| Store | Before | After | Delta |
+|---|---|---|---|
+| `leads_backup` | 14 | 15 | **+1** — one row, `lastAction: reconciled`, `correlationId n8n:sweep:59` |
+| ledger | 17 | 18 | **+1** — row `id=18`, `status: completed`, `attempt 1`, `backupAttempt 1` |
+| `run_log` — `outcome: reconciled` | 18 | 19 | **+1** — exactly one row, `step: reconcile` |
+| `run_log` — total | 72 | 73 | +1 |
+
+**The strongest single line of evidence here is the node's duration.**
+`Log Reconciled` took **13.5 s** for one recovery — the same 14–18 s signature
+as the six triplicated runs, so the post-write failure occurred again and the
+node still retried. It produced **one** row anyway. The fix was not tested
+against a healthy write; it was tested against the failure it exists for.
+
+### Run 2 — idempotence (execution 61)
+
+01:52:02 → 01:52:05 UTC, success, 2.1 s.
+
+- All **10** candidates left `Needs Recovery?` through output 1. Output 0 was
+  empty in all ten runs, and `Already Known - Skip` executed ten times.
+- **`Sheets: leads_backup (recovered)`, `Log Reconciled` and
+  `Ledger: Record Recovery` do not appear in the execution's `runData` at all.**
+  Not "no new rows appeared" — the nodes that write rows were never invoked.
+- Re-counted after the run: `leads_backup` 15, ledger 18, `run_log` 73,
+  `reconciled` 19. Every figure identical to after run 1. **Zero writes.**
+
+### No modification to GHL
+
+The fixture opportunity's `updatedAt` is byte-identical across three separate
+observations — the creation response, the sweep's own read in run 1, and its
+read in run 2 — all `2026-08-10T01:49:15.630Z`, equal to its `createdAt`.
+
+**What is NOT claimed:** that the credential was proven incapable of writing.
+The scope is `opportunities.readonly` as created, and the structural guarantee
+is unchanged — the workflow contains exactly one GHL node and it is a `GET`.
+
+### Open questions this run leaves
+
+- **The error behind the post-write failure is still unknown.** It recurred in
+  execution 59 (13.5 s) and n8n still did not persist it.
+- **Concurrent appends to one Sheets tab lost rows.** Three diagnostic
+  executions fired at the same second each reported a successful append and each
+  read back a row count consistent with success, yet only **one** of the three
+  rows exists in `run_log`. This is the repository's **first** concurrency
+  observation of any kind. It was seen on the throwaway diagnostic's own writes,
+  **not** on any production path — the sweep is single-threaded on a schedule
+  and the ingress path was not exercised this way. It is recorded as a question,
+  not as a claim about the deployed system.
 
 ---
 
@@ -217,12 +348,19 @@ that column.
   and so it never becomes a candidate. The staleness branch can only rescue a
   stuck row whose Opportunity is real.
 
-## Ready-made test data — now consumed
+## Ready-made test data — consumed twice over
 
 The six fictional diagnostic contacts that had a GHL opportunity with **no**
-`leads_backup` row have all been recovered by run 1, so **this scenario no
-longer has unconsumed test data.** Re-running TC-17 from scratch needs a fresh
-opportunity created in GHL whose webhook does not reach n8n.
+`leads_backup` row were all recovered by the first run, and the `Noa Feldman`
+fixture created for the re-run was recovered by execution 59. **This scenario
+has no unconsumed test data.**
+
+Running TC-17 again needs a fresh fictional opportunity whose webhook does not
+reach n8n. The procedure that worked is above: create the contact and
+opportunity through the GHL API **with the n8n ingress workflow deactivated**,
+since the GHL workflow fires on *Opportunity Created* and the API route does not
+avoid it. Record `activeVersionId` before deactivating and republish that exact
+id — [`../n8n/operations.md`](../n8n/operations.md) §1 says why.
 
 ## Related
 
